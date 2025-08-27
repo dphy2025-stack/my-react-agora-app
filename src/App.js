@@ -7,7 +7,7 @@ const App = () => {
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7"; // همون App ID که دادی
-  const CHANNEL = "love-channel"; // باید تو و عشقت یکی باشه
+  const CHANNEL = "love-channel";
   const TOKEN = "007eJxTYJBcbb/oZNGrqXFvWMOe3o0LUpu6XrLmcv5LJjufulCRa6UKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWzYLrMhoCGRncHKMZGKEQxOdhyMkvS9VNzkjMy0vNYWAAACc2ITk="; // تستی می‌تونه null باشه
 
   const joinCall = async () => {
@@ -54,7 +54,7 @@ const App = () => {
     >
       {inCall ? (
         <>
-          <h2 style={{ color: "#ff4d88" }}>📞 در حال تماس با عشقت 💖</h2>
+          <h2 style={{ color: "#ff4d88" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
           <button
             onClick={leaveCall}
             style={{
