@@ -3,7 +3,7 @@ import AgoraRTC from "agora-rtc-sdk-ng";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
-  const [ping, setPing] = useState(null);
+  const [connectionQuality, setConnectionQuality] = useState("–");
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -14,37 +14,47 @@ const App = () => {
   const TOKEN =
     "007eJxTYJBcbb/oZNGrqXFvWMOe3o0LUpu6XrLmcv5LJjufulCRa6UKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWzYLrMhoCGRncHKMZGKEQxOdhyMkvS9VNzkjMy0vNYWAAACc2ITk=";
 
-  // بررسی وضعیت اتصال و پینگ
   useEffect(() => {
+    // Reconnection خودکار
     client.on("connection-state-change", (cur, prev) => {
       if (cur === "DISCONNECTED") {
         console.log("در حال تلاش برای اتصال مجدد...");
       }
     });
 
-    client.on("network-quality", (uplink, downlink) => {
-      // uplink و downlink: 0 = عالی، 5 = ضعیف
-      setPing(`Uplink: ${uplink} / Downlink: ${downlink}`);
-    });
-  }, [client]);
+    // هر 3 ثانیه وضعیت شبکه را بررسی کن
+    const interval = setInterval(async () => {
+      if (inCall) {
+        try {
+          const stats = await client.getRTCStats();
+          const rtt = stats.rtt || 0;
+
+          if (rtt < 150) setConnectionQuality("عالی ✅");
+          else if (rtt < 300) setConnectionQuality("خوب ⚡");
+          else if (rtt < 500) setConnectionQuality("متوسط ⚠️");
+          else setConnectionQuality("ضعیف ❌");
+        } catch (e) {
+          setConnectionQuality("–");
+        }
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [client, inCall]);
 
   const joinCall = async () => {
     await client.join(APP_ID, CHANNEL, TOKEN, null);
 
-    // گرفتن میکروفون با تنظیمات کم حجم و پایدار
     const micTrack = await AgoraRTC.createMicrophoneAudioTrack({
-      encoderConfig: "low_quality", // بیت‌ریت پایین برای اینترنت ضعیف
+      encoderConfig: "low_quality",
       AEC: true,
       AGC: true,
       ANS: true,
     });
-
     setLocalAudioTrack(micTrack);
 
-    // انتشار صدا
     await client.publish([micTrack]);
 
-    // پخش صدای طرف مقابل
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio") {
@@ -63,7 +73,7 @@ const App = () => {
     }
     await client.leave();
     setInCall(false);
-    setPing(null);
+    setConnectionQuality("–");
   };
 
   return (
@@ -82,11 +92,9 @@ const App = () => {
           <h2 style={{ color: "#ffffffff" }}>
             📞 در حال تماس با مخاطب مورد نظر
           </h2>
-          {ping && (
-            <p style={{ color: "lightgreen", marginTop: "10px" }}>
-              🔹 وضعیت شبکه: {ping}
-            </p>
-          )}
+          <p style={{ color: "lightgreen", marginTop: "10px" }}>
+            🔹 کیفیت اتصال: {connectionQuality}
+          </p>
           <button
             onClick={leaveCall}
             style={{
