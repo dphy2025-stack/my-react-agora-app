@@ -48,26 +48,27 @@ const App = () => {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        background: "#ffe6f0",
+        background: "#303c43ff",
         flexDirection: "column",
       }}
     >
       {inCall ? (
         <>
-          <h2 style={{ color: "#ff4d88" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
+          <h2 style={{ color: "#ffffffff" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
           <button
             onClick={leaveCall}
             style={{
-              padding: "12px 24px",
-              borderRadius: "25px",
-              background: "#ff4d88",
+              padding: "15px 30px",
+              borderRadius: "15px",
+              background: "#f94b4be7",
               color: "white",
               border: "none",
               cursor: "pointer",
               marginTop: "20px",
+              fontSize: "17px"
             }}
           >
-            ❌ قطع تماس
+             قطع تماس
           </button>
         </>
       ) : (
@@ -75,16 +76,16 @@ const App = () => {
           onClick={joinCall}
           style={{
             padding: "15px 30px",
-            borderRadius: "30px",
-            background: "#ff4d88",
-            color: "white",
+            borderRadius: "15px",
+            background: "inherit",
+            color: "lightgreen",
             fontSize: "18px",
-            border: "none",
+            border: "solid 1px lightgreen",
             cursor: "pointer",
-            boxShadow: "0px 4px 10px rgba(0,0,0,0.2)",
+            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
           }}
         >
-          ❤️ شروع تماس با عشقم ❤️
+          شروع تماس با مخاطب مورد نظر
         </button>
       )}
     </div>
