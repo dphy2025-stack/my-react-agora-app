@@ -1,13 +1,19 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
+import * as Tone from "tone";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
+  const [voiceOn, setVoiceOn] = useState(false);
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
+
+  const localTrackRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const rawStreamRef = useRef(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
@@ -15,14 +21,12 @@ const App = () => {
     "007eJxTYJBcbb/oZNGrqXFvWMOe3o0LUpu6XrLmcv5LJjufulCRa6UKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWzYLrMhoCGRncHKMZGKEQxOdhyMkvS9VNzkjMy0vNYWAAACc2ITk=";
 
   useEffect(() => {
-    // Reconnection خودکار
     client.on("connection-state-change", (cur, prev) => {
       if (cur === "DISCONNECTED") {
         console.log("در حال تلاش برای اتصال مجدد...");
       }
     });
 
-    // هر 3 ثانیه وضعیت شبکه را بررسی کن
     const interval = setInterval(async () => {
       if (inCall) {
         try {
@@ -42,28 +46,72 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
+  // تابع ساخت Track با یا بدون Voice Changer
+  const createVoiceTrack = async (enableVoice) => {
+    if (!rawStreamRef.current) {
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+
+    if (!enableVoice) {
+      return await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: "low_quality",
+        AEC: true,
+        AGC: true,
+        ANS: true,
+      });
+    }
+
+    // ---- Audio Processing با Tone.js ----
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtxRef.current = audioCtx;
+
+    const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+
+    const pitch = new Tone.PitchShift(7).toDestination(); // زنونه‌تر
+    const eq = new Tone.EQ3(2, 1, -2).toDestination();
+    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 }).toDestination();
+
+    const dest = audioCtx.createMediaStreamDestination();
+    micSource.connect(pitch);
+    pitch.connect(eq);
+    eq.connect(reverb);
+    reverb.connect(dest);
+
+    const processedTrack = dest.stream.getAudioTracks()[0];
+    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
+  };
+
   const joinCall = async () => {
     await client.join(APP_ID, CHANNEL, TOKEN, null);
 
-    const micTrack = await AgoraRTC.createMicrophoneAudioTrack({
-      encoderConfig: "low_quality",
-      AEC: true,
-      AGC: true,
-      ANS: true,
-    });
-    setLocalAudioTrack(micTrack);
-
-    await client.publish([micTrack]);
+    const track = await createVoiceTrack(voiceOn);
+    localTrackRef.current = track;
+    setLocalAudioTrack(track);
+    await client.publish([track]);
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio") {
-        const remoteAudioTrack = user.audioTrack;
-        remoteAudioTrack.play();
+        user.audioTrack.play();
       }
     });
 
     setInCall(true);
+  };
+
+  const toggleVoice = async () => {
+    if (!localTrackRef.current) return;
+
+    await client.unpublish([localTrackRef.current]);
+    localTrackRef.current.stop();
+    localTrackRef.current.close && localTrackRef.current.close();
+
+    const newTrack = await createVoiceTrack(!voiceOn);
+    localTrackRef.current = newTrack;
+    setLocalAudioTrack(newTrack);
+    await client.publish([newTrack]);
+
+    setVoiceOn(!voiceOn);
   };
 
   const leaveCall = async () => {
@@ -71,6 +119,7 @@ const App = () => {
       localAudioTrack.stop();
       localAudioTrack.close();
     }
+    audioCtxRef.current?.close();
     await client.leave();
     setInCall(false);
     setConnectionQuality("–");
@@ -96,6 +145,21 @@ const App = () => {
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
           <button
+            onClick={toggleVoice}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: voiceOn ? "#f94b4be7" : "lightgreen",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {voiceOn ? "🔴 صدای زنانه فعال است → غیرفعال کن" : "🟢 صدای زنانه خاموش → فعال کن"}
+          </button>
+          <button
             onClick={leaveCall}
             style={{
               padding: "15px 30px",
@@ -104,7 +168,7 @@ const App = () => {
               color: "white",
               border: "none",
               cursor: "pointer",
-              marginTop: "20px",
+              marginTop: "10px",
               fontSize: "17px",
             }}
           >
