@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
+import * as Tone from "tone";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
+  const [voiceOn, setVoiceOn] = useState(false);
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -17,7 +19,6 @@ const App = () => {
   const TOKEN =
     "007eJxTYBCNvRXt1KfClGhxOFXpoNzLzGX/7MOYAie8fHdktmxyT48Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl6JP1GQ2BjAzTJf4xMTJAIIjPw5CTX5aqm5yRmJeXmsPAAADzgSHp";
 
-  // بررسی کیفیت اتصال
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
       if (cur === "DISCONNECTED") console.log("در حال تلاش برای اتصال مجدد...");
@@ -41,31 +42,51 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // گرفتن stream از Virtual Audio Cable
-  const createVACAudioTrack = async () => {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const vacDevice = devices.find((d) =>
-      d.label.includes("CABLE Output")
-    );
-    if (!vacDevice) {
-      alert("Virtual Audio Cable پیدا نشد! مطمئن شو اجرا شده است.");
-      return null;
+  // ایجاد Track با Tone.js
+  const createVoiceTrack = async (enableVoice) => {
+    if (!rawStreamRef.current) {
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
-    rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: vacDevice.deviceId ? { exact: vacDevice.deviceId } : undefined }
-    });
+    if (!enableVoice) {
+      return await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: "low_quality",
+        AEC: true,
+        AGC: true,
+        ANS: true,
+      });
+    }
 
-    const track = await AgoraRTC.createCustomAudioTrack({
-      mediaStreamTrack: rawStreamRef.current.getAudioTracks()[0]
-    });
-    return track;
+    await Tone.start();
+    const audioCtx = Tone.context;
+
+    const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+
+    // بافر 2 ثانیه‌ای
+    const delayNode = audioCtx.createDelay(2.0);
+    micSource.connect(delayNode);
+
+    const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
+    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
+
+    const dest = audioCtx.createMediaStreamDestination();
+
+    const toneSource = new Tone.UserMedia();
+    await toneSource.open();
+    toneSource.connect(pitchShift);
+    pitchShift.connect(reverb);
+
+    const toneGain = audioCtx.createGain();
+    reverb.connect(toneGain);
+    toneGain.connect(dest);
+
+    const processedTrack = dest.stream.getAudioTracks()[0];
+    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
   };
 
   const joinCall = async () => {
     await client.join(APP_ID, CHANNEL, TOKEN, null);
-    const track = await createVACAudioTrack();
-    if (!track) return;
+    const track = await createVoiceTrack(voiceOn);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
@@ -76,6 +97,21 @@ const App = () => {
     });
 
     setInCall(true);
+  };
+
+  const toggleVoice = async () => {
+    if (!localTrackRef.current) return;
+
+    await client.unpublish([localTrackRef.current]);
+    localTrackRef.current.stop();
+    localTrackRef.current.close && localTrackRef.current.close();
+
+    const newTrack = await createVoiceTrack(!voiceOn);
+    localTrackRef.current = newTrack;
+    setLocalAudioTrack(newTrack);
+    await client.publish([newTrack]);
+
+    setVoiceOn(!voiceOn);
   };
 
   const leaveCall = async () => {
@@ -106,6 +142,23 @@ const App = () => {
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
           <button
+            onClick={toggleVoice}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: voiceOn ? "#f94b4be7" : "lightgreen",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {voiceOn
+              ? "🔴 صدای زنانه فعال است → غیرفعال کن"
+              : "🟢 صدای زنانه خاموش → فعال کن"}
+          </button>
+          <button
             onClick={leaveCall}
             style={{
               padding: "15px 30px",
@@ -135,7 +188,7 @@ const App = () => {
             boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
           }}
         >
-          شروع تماس با صدای زنانه
+          شروع تماس با مخاطب مورد نظر
         </button>
       )}
     </div>
