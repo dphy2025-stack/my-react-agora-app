@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
+import * as Tone from "tone";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
@@ -19,6 +20,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYBCNvRXt1KfClGhxOFXpoNzLzGX/7MOYAie8fHdktmxyT48Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl6JP1GQ2BjAzTJf4xMTJAIIjPw5CTX5aqm5yRmJeXmsPAAADzgSHp";
 
+  // بررسی کیفیت اتصال
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
       if (cur === "DISCONNECTED") {
@@ -45,13 +47,13 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
+  // ایجاد Track صوتی با یا بدون Voice Changer
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
     if (!enableVoice) {
-      // Track معمولی بدون Voice Changer
       return await AgoraRTC.createMicrophoneAudioTrack({
         encoderConfig: "low_quality",
         AEC: true,
@@ -60,24 +62,43 @@ const App = () => {
       });
     }
 
-    // Voice Changer با بافر 2–3 ثانیه
+    // ایجاد AudioContext
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     audioCtxRef.current = audioCtx;
 
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
     const dest = audioCtx.createMediaStreamDestination();
 
-    // Pitch shift ساده (زنانه تر)
-    const pitchShiftNode = audioCtx.createGain(); // ساده سازی: gain node placeholder
-    micSource.connect(pitchShiftNode);
-    pitchShiftNode.connect(dest);
+    // Pitch shifting با Tone.js
+    const pitchShift = new Tone.PitchShift({
+      pitch: 7,        // +7 نیم‌پرده → صدای زنانه
+      windowSize: 0.1
+    }).toDestination();
 
-    // افزودن بافر 2 ثانیه‌ای
-    const bufferDelay = audioCtx.createDelay(3.0); // حداکثر 3 ثانیه
-    pitchShiftNode.connect(bufferDelay);
-    bufferDelay.connect(dest);
+    // کمی reverb برای طبیعی‌تر شدن صدا
+    const reverb = new Tone.Reverb({
+      decay: 1.2,
+      wet: 0.2
+    }).toDestination();
 
-    const processedTrack = dest.stream.getAudioTracks()[0];
+    // بافر 2 ثانیه‌ای
+    const delayNode = audioCtx.createDelay(2.0);
+    
+    // اتصال Nodeها به صورت زنجیره
+    const mediaStreamDestination = audioCtx.createMediaStreamDestination();
+    micSource.connect(delayNode);
+    delayNode.connect(mediaStreamDestination);
+
+    // استفاده از Tone.js nodes
+    const toneInput = new Tone.UserMedia();
+    await toneInput.open();
+    toneInput.connect(pitchShift);
+    pitchShift.connect(reverb);
+    reverb.connect(Tone.Destination);
+
+    // استخراج track نهایی
+    const processedTrack = mediaStreamDestination.stream.getAudioTracks()[0];
+
     return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
   };
 
