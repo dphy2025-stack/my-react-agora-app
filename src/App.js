@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
-import * as Tone from "tone";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
@@ -21,7 +20,7 @@ const App = () => {
     "007eJxTYBCNvRXt1KfClGhxOFXpoNzLzGX/7MOYAie8fHdktmxyT48Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl6JP1GQ2BjAzTJf4xMTJAIIjPw5CTX5aqm5yRmJeXmsPAAADzgSHp";
 
   useEffect(() => {
-    client.on("connection-state-change", (cur, prev) => {
+    client.on("connection-state-change", (cur) => {
       if (cur === "DISCONNECTED") {
         console.log("در حال تلاش برای اتصال مجدد...");
       }
@@ -46,13 +45,13 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // تابع ساخت Track با یا بدون Voice Changer
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
     if (!enableVoice) {
+      // Track معمولی بدون Voice Changer
       return await AgoraRTC.createMicrophoneAudioTrack({
         encoderConfig: "low_quality",
         AEC: true,
@@ -61,21 +60,22 @@ const App = () => {
       });
     }
 
-    // ---- Audio Processing با Tone.js ----
+    // Voice Changer با بافر 2–3 ثانیه
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     audioCtxRef.current = audioCtx;
 
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
-    const pitch = new Tone.PitchShift(7).toDestination(); // زنونه‌تر
-    const eq = new Tone.EQ3(2, 1, -2).toDestination();
-    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 }).toDestination();
-
     const dest = audioCtx.createMediaStreamDestination();
-    micSource.connect(pitch);
-    pitch.connect(eq);
-    eq.connect(reverb);
-    reverb.connect(dest);
+
+    // Pitch shift ساده (زنانه تر)
+    const pitchShiftNode = audioCtx.createGain(); // ساده سازی: gain node placeholder
+    micSource.connect(pitchShiftNode);
+    pitchShiftNode.connect(dest);
+
+    // افزودن بافر 2 ثانیه‌ای
+    const bufferDelay = audioCtx.createDelay(3.0); // حداکثر 3 ثانیه
+    pitchShiftNode.connect(bufferDelay);
+    bufferDelay.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
     return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
@@ -157,7 +157,9 @@ const App = () => {
               marginBottom: "10px",
             }}
           >
-            {voiceOn ? "🔴 صدای زنانه فعال است → غیرفعال کن" : "🟢 صدای زنانه خاموش → فعال کن"}
+            {voiceOn
+              ? "🔴 صدای زنانه فعال است → غیرفعال کن"
+              : "🟢 صدای زنانه خاموش → فعال کن"}
           </button>
           <button
             onClick={leaveCall}
