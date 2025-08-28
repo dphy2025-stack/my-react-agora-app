@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
-import * as Tone from "tone";
 
 const App = () => {
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
+  const [voiceAIOn, setVoiceAIOn] = useState(false);
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -13,6 +13,7 @@ const App = () => {
 
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
+  const voiceAISocketRef = useRef(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
@@ -42,8 +43,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ایجاد Track با یا بدون Voice Changer
-  const createVoiceTrack = async (enableVoice) => {
+  const createVoiceTrack = async (enableVoice, useVoiceAI = false) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
@@ -57,40 +57,58 @@ const App = () => {
       });
     }
 
-    await Tone.start(); // شروع Tone.js
-    const audioCtx = Tone.context;
+    // اگر Voice.ai فعال باشد
+    if (useVoiceAI) {
+      // WebSocket به Voice.ai
+      if (!voiceAISocketRef.current) {
+        const socket = new WebSocket("wss://api.voice.ai/realtime"); // URL واقعی Voice.ai
+        socket.binaryType = "arraybuffer";
+        socket.onopen = () => console.log("Voice.ai WebSocket connected");
+        socket.onclose = () => console.log("Voice.ai WebSocket closed");
+        socket.onerror = (e) => console.error("Voice.ai Error", e);
+        voiceAISocketRef.current = socket;
+      }
 
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+      const dest = audioCtx.createMediaStreamDestination();
+
+      // MediaRecorder با بافر 3 ثانیه‌ای
+      const mediaRecorder = new MediaRecorder(rawStreamRef.current);
+      mediaRecorder.ondataavailable = (event) => {
+        if (voiceAISocketRef.current && voiceAISocketRef.current.readyState === WebSocket.OPEN) {
+          // می‌توان پارامتر "voice" را برای صدای دختر معمولی تنظیم کرد
+          // (در صورت پشتیبانی API Voice.ai)
+          voiceAISocketRef.current.send(event.data);
+        }
+      };
+      mediaRecorder.start(3000);
+
+      // دریافت صداهای پردازش شده
+      voiceAISocketRef.current.onmessage = (msg) => {
+        audioCtx.decodeAudioData(msg.data, (buffer) => {
+          const source = audioCtx.createBufferSource();
+          source.buffer = buffer;
+          source.connect(dest);
+          source.start();
+        });
+      };
+
+      return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: dest.stream.getAudioTracks()[0] });
+    }
+
+    // حالت قدیمی Tone.js
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
-    // Delay برای بافر ۲ ثانیه‌ای
     const delayNode = audioCtx.createDelay(2.0);
     micSource.connect(delayNode);
 
-    // Tone.js nodes برای صدای زنانه
-    const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
-    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
-
-    // ساخت MediaStreamDestination
-    const dest = audioCtx.createMediaStreamDestination();
-
-    // اتصال nodes به یکدیگر و در نهایت به dest
-    const toneSource = new Tone.UserMedia();
-    await toneSource.open();
-    toneSource.connect(pitchShift);
-    pitchShift.connect(reverb);
-
-    // reverb خروجی را به MediaStreamDestination متصل کنیم
-    const toneGain = audioCtx.createGain();
-    reverb.connect(toneGain);
-    toneGain.connect(dest);
-
-    const processedTrack = dest.stream.getAudioTracks()[0];
-    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
+    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: rawStreamRef.current.getAudioTracks()[0] });
   };
 
   const joinCall = async () => {
     await client.join(APP_ID, CHANNEL, TOKEN, null);
-    const track = await createVoiceTrack(voiceOn);
+    const track = await createVoiceTrack(voiceOn, voiceAIOn);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
@@ -110,12 +128,27 @@ const App = () => {
     localTrackRef.current.stop();
     localTrackRef.current.close && localTrackRef.current.close();
 
-    const newTrack = await createVoiceTrack(!voiceOn);
+    const newTrack = await createVoiceTrack(!voiceOn, voiceAIOn);
     localTrackRef.current = newTrack;
     setLocalAudioTrack(newTrack);
     await client.publish([newTrack]);
 
     setVoiceOn(!voiceOn);
+  };
+
+  const toggleVoiceAI = async () => {
+    if (!localTrackRef.current) return;
+
+    await client.unpublish([localTrackRef.current]);
+    localTrackRef.current.stop();
+    localTrackRef.current.close && localTrackRef.current.close();
+
+    const newTrack = await createVoiceTrack(true, !voiceAIOn);
+    localTrackRef.current = newTrack;
+    setLocalAudioTrack(newTrack);
+    await client.publish([newTrack]);
+
+    setVoiceAIOn(!voiceAIOn);
   };
 
   const leaveCall = async () => {
@@ -162,6 +195,24 @@ const App = () => {
               ? "🔴 صدای زنانه فعال است → غیرفعال کن"
               : "🟢 صدای زنانه خاموش → فعال کن"}
           </button>
+
+          {/* دکمه Voice.ai */}
+          <button
+            onClick={toggleVoiceAI}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: voiceAIOn ? "#f94b4be7" : "lightblue",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {voiceAIOn ? "🔴 Voice.ai فعال → غیرفعال کن" : "🟢 Voice.ai خاموش → فعال کن"}
+          </button>
+
           <button
             onClick={leaveCall}
             style={{
