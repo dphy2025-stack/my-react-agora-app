@@ -12,7 +12,6 @@ const App = () => {
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
 
   const localTrackRef = useRef(null);
-  const audioCtxRef = useRef(null);
   const rawStreamRef = useRef(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
@@ -20,12 +19,9 @@ const App = () => {
   const TOKEN =
     "007eJxTYBCNvRXt1KfClGhxOFXpoNzLzGX/7MOYAie8fHdktmxyT48Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl6JP1GQ2BjAzTJf4xMTJAIIjPw5CTX5aqm5yRmJeXmsPAAADzgSHp";
 
-  // بررسی کیفیت اتصال
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
-      if (cur === "DISCONNECTED") {
-        console.log("در حال تلاش برای اتصال مجدد...");
-      }
+      if (cur === "DISCONNECTED") console.log("در حال تلاش برای اتصال مجدد...");
     });
 
     const interval = setInterval(async () => {
@@ -33,7 +29,6 @@ const App = () => {
         try {
           const stats = await client.getRTCStats();
           const rtt = stats.rtt || 0;
-
           if (rtt < 150) setConnectionQuality("عالی ✅");
           else if (rtt < 300) setConnectionQuality("خوب ⚡");
           else if (rtt < 500) setConnectionQuality("متوسط ⚠️");
@@ -47,7 +42,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ایجاد Track صوتی با یا بدون Voice Changer
+  // ایجاد Track با یا بدون Voice Changer
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -62,49 +57,39 @@ const App = () => {
       });
     }
 
-    // ایجاد AudioContext
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    audioCtxRef.current = audioCtx;
+    await Tone.start(); // شروع Tone.js
+    const audioCtx = Tone.context;
 
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+
+    // Delay برای بافر ۲ ثانیه‌ای
+    const delayNode = audioCtx.createDelay(2.0);
+    micSource.connect(delayNode);
+
+    // Tone.js nodes برای صدای زنانه
+    const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
+    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
+
+    // ساخت MediaStreamDestination
     const dest = audioCtx.createMediaStreamDestination();
 
-    // Pitch shifting با Tone.js
-    const pitchShift = new Tone.PitchShift({
-      pitch: 7,        // +7 نیم‌پرده → صدای زنانه
-      windowSize: 0.1
-    }).toDestination();
-
-    // کمی reverb برای طبیعی‌تر شدن صدا
-    const reverb = new Tone.Reverb({
-      decay: 1.2,
-      wet: 0.2
-    }).toDestination();
-
-    // بافر 2 ثانیه‌ای
-    const delayNode = audioCtx.createDelay(2.0);
-    
-    // اتصال Nodeها به صورت زنجیره
-    const mediaStreamDestination = audioCtx.createMediaStreamDestination();
-    micSource.connect(delayNode);
-    delayNode.connect(mediaStreamDestination);
-
-    // استفاده از Tone.js nodes
-    const toneInput = new Tone.UserMedia();
-    await toneInput.open();
-    toneInput.connect(pitchShift);
+    // اتصال nodes به یکدیگر و در نهایت به dest
+    const toneSource = new Tone.UserMedia();
+    await toneSource.open();
+    toneSource.connect(pitchShift);
     pitchShift.connect(reverb);
-    reverb.connect(Tone.Destination);
 
-    // استخراج track نهایی
-    const processedTrack = mediaStreamDestination.stream.getAudioTracks()[0];
+    // reverb خروجی را به MediaStreamDestination متصل کنیم
+    const toneGain = audioCtx.createGain();
+    reverb.connect(toneGain);
+    toneGain.connect(dest);
 
+    const processedTrack = dest.stream.getAudioTracks()[0];
     return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
   };
 
   const joinCall = async () => {
     await client.join(APP_ID, CHANNEL, TOKEN, null);
-
     const track = await createVoiceTrack(voiceOn);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
@@ -112,9 +97,7 @@ const App = () => {
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      if (mediaType === "audio") {
-        user.audioTrack.play();
-      }
+      if (mediaType === "audio") user.audioTrack.play();
     });
 
     setInCall(true);
@@ -140,7 +123,6 @@ const App = () => {
       localAudioTrack.stop();
       localAudioTrack.close();
     }
-    audioCtxRef.current?.close();
     await client.leave();
     setInCall(false);
     setConnectionQuality("–");
@@ -159,9 +141,7 @@ const App = () => {
     >
       {inCall ? (
         <>
-          <h2 style={{ color: "#ffffffff" }}>
-            📞 در حال تماس با مخاطب مورد نظر
-          </h2>
+          <h2 style={{ color: "#ffffffff" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
           <p style={{ color: "lightgreen", marginTop: "10px" }}>
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
