@@ -124,6 +124,16 @@ const App = () => {
     setConnectionQuality("–");
   };
 
+  // لیست کاربران برای نمایش در UI
+  const users = [
+    { name: "نرگس احمدی", online: false },
+    { name: "فاطمه اکبری مقدم", online: true },
+    { name: "ندا دلیلی", online: false },
+    { name: "مهدیه کرمانی", online: true },
+    { name: "ناشناس", online: true },
+    { name: "آتنا نیکدل", online: true },
+  ];
+
   return (
     <div
       style={{
@@ -141,6 +151,48 @@ const App = () => {
           <p style={{ color: "lightgreen", marginTop: "10px" }}>
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
+
+          {/* لیست کاربران با آیکون آنلاین/آفلاین */}
+          <div
+            style={{
+              marginTop: "20px",
+              background: "#2e3b45",
+              padding: "15px",
+              borderRadius: "12px",
+              color: "white",
+              width: "300px",
+            }}
+          >
+            <h3>👥 کاربران حاضر در تماس:</h3>
+            <ul style={{ listStyle: "none", padding: 0, marginTop: "10px" }}>
+              {users.map((user, index) => (
+                <li
+                  key={index}
+                  style={{
+                    marginBottom: "10px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "12px",
+                      height: "12px",
+                      borderRadius: "50%",
+                      display: "inline-block",
+                      marginRight: "10px",
+                      backgroundColor: user.online ? "lightgreen" : "gray",
+                    }}
+                  ></span>
+                  {user.name} –{" "}
+                  <span style={{ color: user.online ? "lightgreen" : "gray" }}>
+                    {user.online ? "آنلاین" : "آفلاین"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
           <button
             onClick={toggleVoice}
             style={{
@@ -149,9 +201,10 @@ const App = () => {
               border: "none",
               cursor: "pointer",
               background: voiceOn ? "#f94b4be7" : "lightgreen",
-              color: "white",
+              color: "lightgreen",
               fontSize: "16px",
               marginBottom: "10px",
+              marginTop: "20px",
             }}
           >
             {voiceOn
