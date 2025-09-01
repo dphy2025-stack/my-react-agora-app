@@ -43,7 +43,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ایجاد Track با Tone.js
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -62,8 +61,7 @@ const App = () => {
     const audioCtx = Tone.context;
 
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
-    // بافر 2 ثانیه‌ای
+    
     const delayNode = audioCtx.createDelay(2.0);
     micSource.connect(delayNode);
 
