@@ -22,7 +22,7 @@ const App = () => {
 
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
-      if (cur === "DISCONNECTED") console.log("در حال تلاش برای اتصال مجدد...");
+      if (cur === "DISCONNECTED") console.log("Waiting..");
     });
 
     const interval = setInterval(async () => {
@@ -61,7 +61,7 @@ const App = () => {
     const audioCtx = Tone.context;
 
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-    
+
     const delayNode = audioCtx.createDelay(2.0);
     micSource.connect(delayNode);
 
