@@ -17,24 +17,11 @@ const App = () => {
 
   const [currentOutput, setCurrentOutput] = useState(null);
   const [isEarpiece, setIsEarpiece] = useState(false);
-  const [deviceSupportsSwitch, setDeviceSupportsSwitch] = useState(false);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYCgxrpI7cbo4a//j0LQlVonpau0sd5Ivf/7sdqNvcl+fQr8Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl7OJtGQ2BjAzbD5kzMTJAIIjPw5CTX5aqm5yRmJeXmsPAAACaiiOE";
-
-  // بررسی مدل گوشی برای فعال شدن دکمه
-  useEffect(() => {
-    const ua = navigator.userAgent.toLowerCase();
-    if (
-      ua.includes("sm-a11") ||
-      ua.includes("sm-m11") ||
-      ua.includes("redmi 10")
-    ) {
-      setDeviceSupportsSwitch(true);
-    }
-  }, []);
 
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
@@ -113,17 +100,16 @@ const App = () => {
 
     setInCall(true);
 
-    if (deviceSupportsSwitch) {
-      navigator.mediaDevices.enumerateDevices().then((devices) => {
-        const outputs = devices.filter(d => d.kind === "audiooutput");
-        const speaker = outputs.find(d => d.label.toLowerCase().includes("speaker"));
-        if (speaker && remoteAudioRef.current?.setSinkId) {
-          remoteAudioRef.current.setSinkId(speaker.deviceId);
-          setCurrentOutput(speaker.deviceId);
-          setIsEarpiece(false);
-        }
-      });
-    }
+    // پیش‌فرض روی اسپیکر
+    navigator.mediaDevices.enumerateDevices().then((devices) => {
+      const outputs = devices.filter(d => d.kind === "audiooutput");
+      const speaker = outputs.find(d => d.label.toLowerCase().includes("speaker"));
+      if (speaker && remoteAudioRef.current?.setSinkId) {
+        remoteAudioRef.current.setSinkId(speaker.deviceId);
+        setCurrentOutput(speaker.deviceId);
+        setIsEarpiece(false);
+      }
+    });
   };
 
   const toggleVoice = async () => {
@@ -162,6 +148,11 @@ const App = () => {
 
     const earpiece = outputs.find(d => d.label.toLowerCase().includes("earpiece"));
     const speaker = outputs.find(d => d.label.toLowerCase().includes("speaker"));
+
+    if (!speaker && !earpiece) {
+      alert("اسپیکر یا گوشی شما شناسایی نشد");
+      return;
+    }
 
     if (currentOutput === speaker?.deviceId && earpiece) {
       await remoteAudioRef.current.setSinkId(earpiece.deviceId);
@@ -210,6 +201,7 @@ const App = () => {
           <p style={{ color: "lightgreen", marginTop: "10px" }}>
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
+
           <button
             onClick={toggleVoice}
             style={{
@@ -228,23 +220,22 @@ const App = () => {
               : "🟢 تغییر صدا **غیر فعال**  → فعال کن"}
           </button>
 
-          {deviceSupportsSwitch && (
-            <button
-              onClick={toggleOutput}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                border: "none",
-                cursor: "pointer",
-                background: "#4b6ef7",
-                color: "white",
-                fontSize: "16px",
-                marginBottom: "10px",
-              }}
-            >
-              {isEarpiece ? "🔊 انتقال به اسپیکر" : "🎧 انتقال به گوشی"}
-            </button>
-          )}
+          {/* دکمه همیشه نمایش داده می‌شود */}
+          <button
+            onClick={toggleOutput}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: "#4b6ef7",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {isEarpiece ? "🔊 انتقال به اسپیکر" : "🎧 انتقال به گوشی"}
+          </button>
 
           <button
             onClick={leaveCall}
