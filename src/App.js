@@ -10,14 +10,8 @@ const App = () => {
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
-  const [volume, setVolume] = useState(1); // 1 = صدای کامل
-
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
-  const remoteAudioRef = useRef(null);
-  const audioCtxRef = useRef(null);
-  const gainNodeRef = useRef(null);
-  const sourceRef = useRef(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
@@ -49,7 +43,9 @@ const App = () => {
 
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
-      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
     }
 
     if (!enableVoice) {
@@ -63,15 +59,15 @@ const App = () => {
 
     await Tone.start();
     const audioCtx = Tone.context;
-
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+
     const delayNode = audioCtx.createDelay(2.0);
     micSource.connect(delayNode);
 
     const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
     const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
-    const dest = audioCtx.createMediaStreamDestination();
 
+    const dest = audioCtx.createMediaStreamDestination();
     const toneSource = new Tone.UserMedia();
     await toneSource.open();
     toneSource.connect(pitchShift);
@@ -82,7 +78,9 @@ const App = () => {
     toneGain.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
+    return await AgoraRTC.createCustomAudioTrack({
+      mediaStreamTrack: processedTrack,
+    });
   };
 
   const joinCall = async () => {
@@ -94,18 +92,7 @@ const App = () => {
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      if (mediaType === "audio") {
-        user.audioTrack.play(remoteAudioRef.current);
-
-        // ساخت AudioContext و GainNode برای کنترل صدای خروجی
-        if (!audioCtxRef.current) {
-          audioCtxRef.current = new AudioContext();
-          sourceRef.current = audioCtxRef.current.createMediaElementSource(remoteAudioRef.current);
-          gainNodeRef.current = audioCtxRef.current.createGain();
-          gainNodeRef.current.gain.value = volume; // مقدار اولیه
-          sourceRef.current.connect(gainNodeRef.current).connect(audioCtxRef.current.destination);
-        }
-      }
+      if (mediaType === "audio") user.audioTrack.play();
     });
 
     setInCall(true);
@@ -136,14 +123,6 @@ const App = () => {
     setConnectionQuality("–");
   };
 
-  const handleVolumeChange = (e) => {
-    const value = parseFloat(e.target.value);
-    setVolume(value);
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.setValueAtTime(value, audioCtxRef.current.currentTime);
-    }
-  };
-
   return (
     <div
       style={{
@@ -155,8 +134,6 @@ const App = () => {
         flexDirection: "column",
       }}
     >
-      <audio ref={remoteAudioRef} autoPlay />
-
       {inCall ? (
         <>
           <h2 style={{ color: "#ffffffff" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
@@ -179,22 +156,8 @@ const App = () => {
           >
             {voiceOn
               ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
-              : "🟢 تغییر صدا **غیر فعال**  → فعال کن"}
+              : "🟢 تغییر صدا **غیر فعال** → فعال کن"}
           </button>
-
-          {/* Slider کنترل صدای خروجی */}
-          <div style={{ margin: "10px 0", width: "80%" }}>
-            <label style={{ color: "white" }}>🔊 بلندی صدا: {Math.round(volume*100)}%</label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              onChange={handleVolumeChange}
-              style={{ width: "100%" }}
-            />
-          </div>
 
           <button
             onClick={leaveCall}
