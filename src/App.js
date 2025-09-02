@@ -10,12 +10,14 @@ const App = () => {
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
-  const [volumeReduced, setVolumeReduced] = useState(false);
+  const [volume, setVolume] = useState(1); // 1 = صدای کامل
 
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
   const remoteAudioRef = useRef(null);
+  const audioCtxRef = useRef(null);
   const gainNodeRef = useRef(null);
+  const sourceRef = useRef(null);
 
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
@@ -79,9 +81,6 @@ const App = () => {
     reverb.connect(toneGain);
     toneGain.connect(dest);
 
-    // ذخیره Gain Node برای کاهش صدا
-    gainNodeRef.current = toneGain;
-
     const processedTrack = dest.stream.getAudioTracks()[0];
     return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
   };
@@ -95,7 +94,18 @@ const App = () => {
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      if (mediaType === "audio") user.audioTrack.play(remoteAudioRef.current);
+      if (mediaType === "audio") {
+        user.audioTrack.play(remoteAudioRef.current);
+
+        // ساخت AudioContext و GainNode برای کنترل صدای خروجی
+        if (!audioCtxRef.current) {
+          audioCtxRef.current = new AudioContext();
+          sourceRef.current = audioCtxRef.current.createMediaElementSource(remoteAudioRef.current);
+          gainNodeRef.current = audioCtxRef.current.createGain();
+          gainNodeRef.current.gain.value = volume; // مقدار اولیه
+          sourceRef.current.connect(gainNodeRef.current).connect(audioCtxRef.current.destination);
+        }
+      }
     });
 
     setInCall(true);
@@ -126,15 +136,11 @@ const App = () => {
     setConnectionQuality("–");
   };
 
-  // دکمه کاهش صدا
-  const toggleVolume = () => {
+  const handleVolumeChange = (e) => {
+    const value = parseFloat(e.target.value);
+    setVolume(value);
     if (gainNodeRef.current) {
-      if (volumeReduced) {
-        gainNodeRef.current.gain.setValueAtTime(1.0, Tone.context.currentTime); // صدای کامل
-      } else {
-        gainNodeRef.current.gain.setValueAtTime(0.25, Tone.context.currentTime); // کاهش صدا به 25%
-      }
-      setVolumeReduced(!volumeReduced);
+      gainNodeRef.current.gain.setValueAtTime(value, audioCtxRef.current.currentTime);
     }
   };
 
@@ -176,21 +182,19 @@ const App = () => {
               : "🟢 تغییر صدا **غیر فعال**  → فعال کن"}
           </button>
 
-          <button
-            onClick={toggleVolume}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: "#4b6ef7",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-            }}
-          >
-            {volumeReduced ? "🔊 صدای کامل" : "🔉 کاهش صدا"}
-          </button>
+          {/* Slider کنترل صدای خروجی */}
+          <div style={{ margin: "10px 0", width: "80%" }}>
+            <label style={{ color: "white" }}>🔊 بلندی صدا: {Math.round(volume*100)}%</label>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={handleVolumeChange}
+              style={{ width: "100%" }}
+            />
+          </div>
 
           <button
             onClick={leaveCall}
