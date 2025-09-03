@@ -16,7 +16,7 @@ const App = () => {
   const APP_ID = "e7f6e9aeecf14b2ba10e3f40be9f56e7";
   const CHANNEL = "love-channel";
   const TOKEN =
-    "007eJxTYCgxrpI7cbo4a//j0LQlVonpau0sd5Ivf/7sdqNvcl+fQr8Cg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVl7OJtGQ2BjAzbD5kzMTJAIIjPw5CTX5aqm5yRmJeXmsPAAACaiiOE";
+    "007eJxTYIic/+bs6ZVswrnll9bPOnnZ8OsOf6Erf2/esWiu0o//qZepwGBuaJ5iaWRmZGZqnmKSnJiYZGqWZpxikWiZaJ5kZGBh+URmR0ZDICND4I0gJkYGCATxeRhy8stSdZMzEvPyUnMYGAAy3CTd";
 
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
