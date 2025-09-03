@@ -45,7 +45,6 @@ const App = () => {
 
     await Tone.start();
     const audioCtx = Tone.context;
-    const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
 
     const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
     const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
@@ -83,15 +82,12 @@ const App = () => {
     });
 
     // RTM join
-    await rtmClient.login({ uid: username });
+    await rtmClient.login({ uid: username + "_" + Date.now() }); // یکتا کردن UID
     const channel = rtmClient.createChannel(CHANNEL);
     await channel.join();
     setRtmChannel(channel);
 
-    // ارسال نام خود به همه
-    channel.sendMessage({ text: JSON.stringify({ type: "join", name: username }) });
-
-    // دریافت پیام‌های RTM
+    // وقتی کسی پیام فرستاد
     channel.on("ChannelMessage", ({ text }) => {
       const data = JSON.parse(text);
       if (data.type === "join") {
@@ -101,8 +97,9 @@ const App = () => {
       }
     });
 
-    // اضافه کردن خود کاربر به لیست
+    // اسم خودتو اضافه کن و به همه اطلاع بده
     setParticipants((prev) => [...new Set([...prev, username])]);
+    channel.sendMessage({ text: JSON.stringify({ type: "join", name: username }) });
 
     setInCall(true);
   };
@@ -143,7 +140,9 @@ const App = () => {
     await client.leave();
 
     if (rtmChannel) {
-      await rtmChannel.sendMessage({ text: JSON.stringify({ type: "leave", name: username }) });
+      await rtmChannel.sendMessage({
+        text: JSON.stringify({ type: "leave", name: username }),
+      });
       await rtmChannel.leave();
     }
     await rtmClient.logout();
