@@ -89,7 +89,6 @@ const App = () => {
     });
   };
 
-  // ✅ تابع joinCall با ثبت نام کاربر
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
@@ -200,7 +199,7 @@ const App = () => {
       style={{
         height: "100vh",
         display: "flex",
-        justifyContent: "center",
+        justifyContent: "flex-start",
         alignItems: "flex-start",
         background: "#303c43ff",
         flexDirection: "column",
@@ -222,6 +221,22 @@ const App = () => {
                 </li>
               ))}
             </ul>
+
+            {/* دکمه ریفرش کاربران حاضر */}
+            <button
+              onClick={() => setUsersInCall({ ...usersInCall })}
+              style={{
+                padding: "8px 15px",
+                marginTop: "10px",
+                borderRadius: "8px",
+                background: "orange",
+                color: "white",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              🔄 بروزرسانی کاربران حاضر
+            </button>
           </div>
 
           <button
@@ -235,6 +250,7 @@ const App = () => {
               color: "white",
               fontSize: "16px",
               marginBottom: "10px",
+              marginTop: "15px",
             }}
           >
             {voiceOn
