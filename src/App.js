@@ -16,7 +16,7 @@ const App = () => {
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
 
-  // ✅ لیست کاربران حاضر: uid → name
+  // لیست کاربران حاضر: uid → name
   const [usersInCall, setUsersInCall] = useState({});
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
@@ -24,6 +24,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYDDf9DSX4YE90+tK8ShN33WbD572v+n+tOfX7k7hTbfvbM9TYDA3NE+xNDIzMjM1TzFJTkxMMjVLM06xSLRMNE8yMrCwLDHakdEQyMhg/PApMyMDBIL4PAw5+WWpuskZiXl5qTkMDADaKCRk";
 
+  // بررسی کیفیت اتصال
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
       if (cur === "DISCONNECTED") console.log("Waiting..");
@@ -46,6 +47,17 @@ const App = () => {
 
     return () => clearInterval(interval);
   }, [client, inCall]);
+
+  // ریفرش خودکار لیست کاربران حاضر هر 1 ثانیه
+  useEffect(() => {
+    if (!inCall) return;
+
+    const interval = setInterval(() => {
+      setUsersInCall((prev) => ({ ...prev }));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [inCall]);
 
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
@@ -89,6 +101,7 @@ const App = () => {
     });
   };
 
+  // ورود به تماس
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
@@ -109,7 +122,7 @@ const App = () => {
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
 
-      // وقتی کاربر جدید وارد شد، نامش را ثبت می‌کنیم
+      // ثبت نام کاربر جدید
       setUsersInCall((prev) => ({
         ...prev,
         [user.uid]: user.name || "کاربر ناشناس",
@@ -157,6 +170,7 @@ const App = () => {
     setUsersInCall({});
   };
 
+  // فرم وارد کردن نام
   if (!nameEntered) {
     return (
       <div
@@ -194,6 +208,7 @@ const App = () => {
     );
   }
 
+  // رابط کاربری تماس
   return (
     <div
       style={{
@@ -221,22 +236,6 @@ const App = () => {
                 </li>
               ))}
             </ul>
-
-            {/* دکمه ریفرش کاربران حاضر */}
-            <button
-              onClick={() => setUsersInCall({ ...usersInCall })}
-              style={{
-                padding: "8px 15px",
-                marginTop: "10px",
-                borderRadius: "8px",
-                background: "orange",
-                color: "white",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              🔄 بروزرسانی کاربران حاضر
-            </button>
           </div>
 
           <button
