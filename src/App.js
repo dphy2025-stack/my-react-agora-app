@@ -6,6 +6,7 @@ const App = () => {
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
+  const [isMuted, setIsMuted] = useState(false); // ✅ وضعیت میوت
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -113,6 +114,17 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
+  // ✅ تابع میوت/آن‌میوت
+  const toggleMute = async () => {
+    if (!localTrackRef.current) return;
+    if (isMuted) {
+      await localTrackRef.current.setEnabled(true); // آن‌میوت
+    } else {
+      await localTrackRef.current.setEnabled(false); // میوت
+    }
+    setIsMuted(!isMuted);
+  };
+
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -157,6 +169,23 @@ const App = () => {
             {voiceOn
               ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
               : "🟢 تغییر صدا **غیر فعال** → فعال کن"}
+          </button>
+
+          {/* ✅ دکمه میوت */}
+          <button
+            onClick={toggleMute}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: isMuted ? "gray" : "#007bff",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
           </button>
 
           <button
