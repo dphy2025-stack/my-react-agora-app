@@ -3,16 +3,21 @@ import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 
 const App = () => {
+  const [username, setUsername] = useState("");
+  const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
-  const [isMuted, setIsMuted] = useState(false); // ✅ وضعیت میوت
+  const [isMuted, setIsMuted] = useState(false);
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
+
+  // ✅ لیست کاربران حاضر: uid → name
+  const [usersInCall, setUsersInCall] = useState({});
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
@@ -84,8 +89,19 @@ const App = () => {
     });
   };
 
+  // ✅ تابع joinCall با ثبت نام کاربر
   const joinCall = async () => {
+    if (!username.trim()) {
+      alert("لطفاً نام خود را وارد کنید!");
+      return;
+    }
+
     await client.join(APP_ID, CHANNEL, TOKEN, null);
+
+    // اضافه کردن نام خود به لیست کاربران حاضر
+    const localUID = client.uid;
+    setUsersInCall((prev) => ({ ...prev, [localUID]: username }));
+
     const track = await createVoiceTrack(voiceOn);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
@@ -93,6 +109,13 @@ const App = () => {
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
+
+      // وقتی کاربر جدید وارد شد، نامش را ثبت می‌کنیم
+      setUsersInCall((prev) => ({
+        ...prev,
+        [user.uid]: user.name || "کاربر ناشناس",
+      }));
+
       if (mediaType === "audio") user.audioTrack.play();
     });
 
@@ -114,7 +137,6 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
-  // ✅ تابع میوت/آن‌میوت
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     if (isMuted) {
@@ -133,7 +155,45 @@ const App = () => {
     await client.leave();
     setInCall(false);
     setConnectionQuality("–");
+    setUsersInCall({});
   };
+
+  if (!nameEntered) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          flexDirection: "column",
+          background: "#303c43ff",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="نام خود را وارد کنید"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
+        />
+        <button
+          onClick={() => setNameEntered(true)}
+          style={{
+            marginTop: "15px",
+            padding: "10px 20px",
+            borderRadius: "10px",
+            fontSize: "16px",
+            cursor: "pointer",
+            background: "lightgreen",
+            border: "none",
+          }}
+        >
+          ادامه
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -141,17 +201,28 @@ const App = () => {
         height: "100vh",
         display: "flex",
         justifyContent: "center",
-        alignItems: "center",
+        alignItems: "flex-start",
         background: "#303c43ff",
         flexDirection: "column",
+        padding: "20px",
       }}
     >
       {inCall ? (
         <>
-          <h2 style={{ color: "#ffffffff" }}>📞 در حال تماس با مخاطب مورد نظر</h2>
-          <p style={{ color: "lightgreen", marginTop: "10px" }}>
-            🔹 کیفیت اتصال: {connectionQuality}
-          </p>
+          <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
+          <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
+
+          {/* لیست کاربران حاضر */}
+          <div style={{ marginTop: "20px" }}>
+            <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
+            <ul>
+              {Object.values(usersInCall).map((name, idx) => (
+                <li key={idx} style={{ color: "lightgreen" }}>
+                  {name}
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <button
             onClick={toggleVoice}
@@ -171,7 +242,6 @@ const App = () => {
               : "🟢 تغییر صدا **غیر فعال** → فعال کن"}
           </button>
 
-          {/* ✅ دکمه میوت */}
           <button
             onClick={toggleMute}
             style={{
@@ -185,7 +255,9 @@ const App = () => {
               marginBottom: "10px",
             }}
           >
-            {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
+            {isMuted
+              ? "🔇 میوت فعال → آن‌میوت کن"
+              : "🎙️ میکروفون روشن → میوت کن"}
           </button>
 
           <button
@@ -218,7 +290,7 @@ const App = () => {
             boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
           }}
         >
-          شروع تماس با مخاطب مورد نظر
+          شروع تماس با مخاطب
         </button>
       )}
     </div>
