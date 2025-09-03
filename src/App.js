@@ -82,12 +82,12 @@ const App = () => {
     });
 
     // RTM join
-    await rtmClient.login({ uid: username + "_" + Date.now() }); // یکتا کردن UID
+    await rtmClient.login({ uid: username + "_" + Date.now() });
     const channel = rtmClient.createChannel(CHANNEL);
     await channel.join();
     setRtmChannel(channel);
 
-    // وقتی کسی پیام فرستاد
+    // دریافت پیام ورود/خروج کاربران
     channel.on("ChannelMessage", ({ text }) => {
       const data = JSON.parse(text);
       if (data.type === "join") {
@@ -97,7 +97,7 @@ const App = () => {
       }
     });
 
-    // اسم خودتو اضافه کن و به همه اطلاع بده
+    // اضافه کردن خود کاربر و ارسال پیام به همه
     setParticipants((prev) => [...new Set([...prev, username])]);
     channel.sendMessage({ text: JSON.stringify({ type: "join", name: username }) });
 
