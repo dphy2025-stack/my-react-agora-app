@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
-import AgoraRTM from "agora-rtm-sdk";
 import * as Tone from "tone";
 
 const App = () => {
@@ -10,16 +9,12 @@ const App = () => {
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-
-  // RTC client
-  const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
+  const [client] = useState(() =>
+    AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
+  );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
-
-  // RTM client و کانال
-  const [rtmClient] = useState(() => AgoraRTM.createInstance("717d9262657d4caab56f3d8a9a7b2089"));
-  const [rtmChannel, setRtmChannel] = useState(null);
 
   // لیست کاربران حاضر: uid → name
   const [usersInCall, setUsersInCall] = useState({});
@@ -29,9 +24,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYPh0Zb8ci/bjW4qLhTca7LzJbmyfmpH37PXh6Tf8jVU9Ju9XYDA3NE+xNDIzMjM1TzFJTkxMMjVLM06xSLRMNE8yMrCwZLLck9EQyMggIH2VhZEBAkF8Hoac/LJU3eSMxLy81BwGBgA+vyGD";
 
-  /*--------------------------------------
-    بررسی کیفیت اتصال (RTC)
-  --------------------------------------*/
+  // بررسی کیفیت اتصال
   useEffect(() => {
     client.on("connection-state-change", (cur) => {
       if (cur === "DISCONNECTED") console.log("Waiting..");
@@ -55,12 +48,11 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  /*--------------------------------------
-    ایجاد ترک صدا با قابلیت تغییر صدا (Tone.js)
-  --------------------------------------*/
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
-      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
     }
 
     if (!enableVoice) {
@@ -93,19 +85,21 @@ const App = () => {
     toneGain.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-    return await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
+    return await AgoraRTC.createCustomAudioTrack({
+      mediaStreamTrack: processedTrack,
+    });
   };
 
-  /*--------------------------------------
-    ورود به تماس و تنظیم RTC + RTM
-  --------------------------------------*/
+  // ورود به تماس
   const joinCall = async () => {
-    if (!username.trim()) return alert("لطفاً نام خود را وارد کنید!");
+    if (!username.trim()) {
+      alert("لطفاً نام خود را وارد کنید!");
+      return;
+    }
 
-    // RTC join
     await client.join(APP_ID, CHANNEL, TOKEN, null);
 
-    // اضافه کردن نام خود به لیست کاربران حاضر محلی
+    // اضافه کردن نام خود به لیست کاربران حاضر
     const localUID = client.uid;
     setUsersInCall((prev) => ({ ...prev, [localUID]: username }));
 
@@ -114,35 +108,18 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // RTM join
-    await rtmClient.login({ uid: username, token: TOKEN });
-    const channel = rtmClient.createChannel(CHANNEL);
-    await channel.join();
-    setRtmChannel(channel);
-
-    // اعلام حضور خود به دیگران
-    await channel.sendMessage({ text: JSON.stringify({ type: "join", name: username }) });
-
-    // دریافت پیام‌ها از کانال RTM
-    channel.on("ChannelMessage", ({ text, memberId }) => {
-      try {
-        const msg = JSON.parse(text);
-        setUsersInCall((prev) => {
-          const copy = { ...prev };
-          if (msg.type === "join") copy[memberId] = msg.name;
-          if (msg.type === "leave") delete copy[memberId];
-          return copy;
-        });
-      } catch (e) {}
-    });
-
-    // RTC: کاربر جدید منتشر کرد
+    // ثبت نام کاربران جدید و حذف کاربران خارج شده
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
+
+      setUsersInCall((prev) => ({
+        ...prev,
+        [user.uid]: user.name || "کاربر ناشناس",
+      }));
+
       if (mediaType === "audio") user.audioTrack.play();
     });
 
-    // RTC: کاربر ترک کرد
     client.on("user-left", (user) => {
       setUsersInCall((prev) => {
         const copy = { ...prev };
@@ -151,33 +128,24 @@ const App = () => {
       });
     });
 
-    // خروج هنگام بستن صفحه
-    window.addEventListener("beforeunload", async () => {
-      if (channel) await channel.sendMessage({ text: JSON.stringify({ type: "leave", name: username }) });
-      await rtmClient.logout();
-    });
-
     setInCall(true);
   };
 
-  /*--------------------------------------
-    تغییر صدا
-  --------------------------------------*/
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
+
     await client.unpublish([localTrackRef.current]);
     localTrackRef.current.stop();
     localTrackRef.current.close && localTrackRef.current.close();
+
     const newTrack = await createVoiceTrack(!voiceOn);
     localTrackRef.current = newTrack;
     setLocalAudioTrack(newTrack);
     await client.publish([newTrack]);
+
     setVoiceOn(!voiceOn);
   };
 
-  /*--------------------------------------
-    میوت و آن‌میوت
-  --------------------------------------*/
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     if (isMuted) await localTrackRef.current.setEnabled(true);
@@ -185,28 +153,30 @@ const App = () => {
     setIsMuted(!isMuted);
   };
 
-  /*--------------------------------------
-    خروج از تماس
-  --------------------------------------*/
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
       localAudioTrack.close();
     }
     await client.leave();
-    if (rtmChannel) await rtmChannel.sendMessage({ text: JSON.stringify({ type: "leave", name: username }) });
-    await rtmClient.logout();
     setInCall(false);
-    setUsersInCall({});
     setConnectionQuality("–");
+    setUsersInCall({});
   };
 
-  /*--------------------------------------
-    فرم وارد کردن نام
-  --------------------------------------*/
+  // فرم وارد کردن نام
   if (!nameEntered) {
     return (
-      <div style={{ height: "100vh", display: "flex", justifyContent: "center", alignItems: "center", flexDirection: "column", background: "#303c43ff" }}>
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          flexDirection: "column",
+          background: "#303c43ff",
+        }}
+      >
         <input
           type="text"
           placeholder="نام خود را وارد کنید"
@@ -216,7 +186,15 @@ const App = () => {
         />
         <button
           onClick={() => setNameEntered(true)}
-          style={{ marginTop: "15px", padding: "10px 20px", borderRadius: "10px", fontSize: "16px", cursor: "pointer", background: "lightgreen", border: "none" }}
+          style={{
+            marginTop: "15px",
+            padding: "10px 20px",
+            borderRadius: "10px",
+            fontSize: "16px",
+            cursor: "pointer",
+            background: "lightgreen",
+            border: "none",
+          }}
         >
           ادامه
         </button>
@@ -224,41 +202,105 @@ const App = () => {
     );
   }
 
-  /*--------------------------------------
-    رابط کاربری تماس
-  --------------------------------------*/
+  // رابط کاربری تماس
   return (
-    <div style={{ height: "100vh", display: "flex", justifyContent: "flex-start", alignItems: "flex-start", background: "#303c43ff", flexDirection: "column", padding: "20px" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        justifyContent: "flex-start",
+        alignItems: "flex-start",
+        background: "#303c43ff",
+        flexDirection: "column",
+        padding: "20px",
+      }}
+    >
       {inCall ? (
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
-          <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
+          <p style={{ color: "lightgreen" }}>
+            🔹 کیفیت اتصال: {connectionQuality}
+          </p>
 
           {/* لیست کاربران حاضر */}
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
             <ul>
               {Object.values(usersInCall).map((name, idx) => (
-                <li key={idx} style={{ color: "lightgreen" }}>{name}</li>
+                <li key={idx} style={{ color: "lightgreen" }}>
+                  {name}
+                </li>
               ))}
             </ul>
           </div>
 
-          {/* دکمه‌ها */}
-          <button onClick={toggleVoice} style={{ padding: "10px 20px", borderRadius: "12px", border: "none", cursor: "pointer", background: voiceOn ? "#f94b4be7" : "lightgreen", color: "white", fontSize: "16px", marginBottom: "10px", marginTop: "15px" }}>
-            {voiceOn ? "🔴 تغییر صدا فعال → غیرفعال کن" : "🟢 تغییر صدا غیر فعال → فعال کن"}
+          <button
+            onClick={toggleVoice}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: voiceOn ? "#f94b4be7" : "lightgreen",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+              marginTop: "15px",
+            }}
+          >
+            {voiceOn
+              ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
+              : "🟢 تغییر صدا **غیر فعال** → فعال کن"}
           </button>
 
-          <button onClick={toggleMute} style={{ padding: "10px 20px", borderRadius: "12px", border: "none", cursor: "pointer", background: isMuted ? "gray" : "#007bff", color: "white", fontSize: "16px", marginBottom: "10px" }}>
-            {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
+          <button
+            onClick={toggleMute}
+            style={{
+              padding: "10px 20px",
+              borderRadius: "12px",
+              border: "none",
+              cursor: "pointer",
+              background: isMuted ? "gray" : "#007bff",
+              color: "white",
+              fontSize: "16px",
+              marginBottom: "10px",
+            }}
+          >
+            {isMuted
+              ? "🔇 میوت فعال → آن‌میوت کن"
+              : "🎙️ میکروفون روشن → میوت کن"}
           </button>
 
-          <button onClick={leaveCall} style={{ padding: "15px 30px", borderRadius: "15px", background: "#f94b4be7", color: "white", border: "none", cursor: "pointer", marginTop: "10px", fontSize: "17px" }}>
+          <button
+            onClick={leaveCall}
+            style={{
+              padding: "15px 30px",
+              borderRadius: "15px",
+              background: "#f94b4be7",
+              color: "white",
+              border: "none",
+              cursor: "pointer",
+              marginTop: "10px",
+              fontSize: "17px",
+            }}
+          >
             قطع تماس
           </button>
         </>
       ) : (
-        <button onClick={joinCall} style={{ padding: "15px 30px", borderRadius: "15px", background: "inherit", color: "lightgreen", fontSize: "18px", border: "solid 1px lightgreen", cursor: "pointer", boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)" }}>
+        <button
+          onClick={joinCall}
+          style={{
+            padding: "15px 30px",
+            borderRadius: "15px",
+            background: "inherit",
+            color: "lightgreen",
+            fontSize: "18px",
+            border: "solid 1px lightgreen",
+            cursor: "pointer",
+            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
+          }}
+        >
           شروع تماس با مخاطب
         </button>
       )}
