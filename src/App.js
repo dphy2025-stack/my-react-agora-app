@@ -48,17 +48,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ریفرش خودکار لیست کاربران حاضر هر 1 ثانیه
-  useEffect(() => {
-    if (!inCall) return;
-
-    const interval = setInterval(() => {
-      setUsersInCall((prev) => ({ ...prev }));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [inCall]);
-
   const createVoiceTrack = async (enableVoice) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
@@ -119,16 +108,24 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
+    // ثبت نام کاربران جدید و حذف کاربران خارج شده
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
 
-      // ثبت نام کاربر جدید
       setUsersInCall((prev) => ({
         ...prev,
         [user.uid]: user.name || "کاربر ناشناس",
       }));
 
       if (mediaType === "audio") user.audioTrack.play();
+    });
+
+    client.on("user-left", (user) => {
+      setUsersInCall((prev) => {
+        const copy = { ...prev };
+        delete copy[user.uid];
+        return copy;
+      });
     });
 
     setInCall(true);
@@ -151,11 +148,8 @@ const App = () => {
 
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
-    if (isMuted) {
-      await localTrackRef.current.setEnabled(true); // آن‌میوت
-    } else {
-      await localTrackRef.current.setEnabled(false); // میوت
-    }
+    if (isMuted) await localTrackRef.current.setEnabled(true);
+    else await localTrackRef.current.setEnabled(false);
     setIsMuted(!isMuted);
   };
 
@@ -224,7 +218,9 @@ const App = () => {
       {inCall ? (
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
-          <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
+          <p style={{ color: "lightgreen" }}>
+            🔹 کیفیت اتصال: {connectionQuality}
+          </p>
 
           {/* لیست کاربران حاضر */}
           <div style={{ marginTop: "20px" }}>
