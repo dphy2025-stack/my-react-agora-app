@@ -22,7 +22,7 @@ const App = () => {
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
-    "007eJxTYPh0Zb8ci/bjW4qLhTca7LzJbmyfmpH37PXh6Tf8jVU9Ju9XYDA3NE+xNDIzMjM1TzFJTkxMMjVLM06xSLRMNE8yMrCwZLLck9EQyMggIH2VhZEBAkF8Hoac/LJU3eSMxLy81BwGBgA+vyGD";
+    "007eJxTYND88ywo/trcnlkbGa5GKz697flunrXd51un2UKbWm8//KapwGBuaJ5iaWRmZGZqnmKSnJiYZGqWZpxikWiZaJ5kZGBh6ad5M6MhkJEhVeopKyMDBIL4PAw5+WWpuskZiXl5qTkMDAAtpiSq";
 
   // بررسی کیفیت اتصال
   useEffect(() => {
