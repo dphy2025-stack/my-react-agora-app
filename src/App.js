@@ -2,6 +2,23 @@ import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 
+// ✅ اضافه‌شده برای Firebase
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, onValue, remove } from "firebase/database";
+
+// پیکربندی Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyAfZxkA95CrbDyxr6MBUUa7Q4p2AVSm0Ro",
+  authDomain: "react-agora-app.firebaseapp.com",
+  projectId: "react-agora-app",
+  storageBucket: "react-agora-app.firebasestorage.app",
+  messagingSenderId: "49930046765",
+  appId: "1:49930046765:web:07cc02c5fd0774b51917a4",
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
 const App = () => {
   const [username, setUsername] = useState("");
   const [nameEntered, setNameEntered] = useState(false);
@@ -23,6 +40,16 @@ const App = () => {
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
+
+  // 👥 دریافت زنده کاربران از Firebase
+  useEffect(() => {
+    const usersRef = ref(db, "callUsers/");
+    const unsubscribe = onValue(usersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      setUsersInCall(data);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // بررسی کیفیت اتصال
   useEffect(() => {
@@ -57,7 +84,7 @@ const App = () => {
         AGC: true,
         ANS: true,
       });
-      track._userName = nameLabel; // ذخیره‌ی نام کاربر روی ترک
+      track._userName = nameLabel;
       return track;
     }
 
@@ -82,11 +109,11 @@ const App = () => {
     toneGain.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-    processedTrack.label = nameLabel; // اینجا هم اسم کاربر را می‌گذاریم
+    processedTrack.label = nameLabel;
     const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
     });
-    customTrack._userName = nameLabel; // اضافه کردن نام به آبجکت
+    customTrack._userName = nameLabel;
     return customTrack;
   };
 
@@ -103,33 +130,24 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // اضافه کردن خود کاربر
-    setUsersInCall((prev) => ({ ...prev, [UID]: username }));
+    // ✅ افزودن نام به Firebase برای نمایش زنده
+    await set(ref(db, `callUsers/${UID}`), username);
 
-    // وقتی کاربر جدید صدا منتشر کند
+    window.addEventListener("beforeunload", () => {
+      remove(ref(db, `callUsers/${UID}`));
+    });
+
+    // کاربر جدید منتشر کند
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio") {
-        const audioTrack = user.audioTrack;
-        const userName =
-          audioTrack?.mediaStreamTrack?.label ||
-          audioTrack?._userName ||
-          `کاربر ${user.uid}`;
-        setUsersInCall((prev) => ({
-          ...prev,
-          [user.uid]: userName,
-        }));
         user.audioTrack.play();
       }
     });
 
-    // وقتی کاربر خارج شود
+    // وقتی خارج شود
     client.on("user-left", (user) => {
-      setUsersInCall((prev) => {
-        const copy = { ...prev };
-        delete copy[user.uid];
-        return copy;
-      });
+      remove(ref(db, `callUsers/${user.uid}`));
     });
 
     setInCall(true);
@@ -160,9 +178,9 @@ const App = () => {
       localAudioTrack.close();
     }
     await client.leave();
+    remove(ref(db, `callUsers/${client.uid}`));
     setInCall(false);
     setConnectionQuality("–");
-    setUsersInCall({});
   };
 
   if (!nameEntered) {
