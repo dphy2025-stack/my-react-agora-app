@@ -1,0 +1,52 @@
+.btn-gradient{
+    background: #f0d041;
+    background: linear-gradient(90deg, rgba(240, 208, 65, 1) 0%, rgba(25, 191, 177, 1) 100%);
+    transition: all 0.5s;
+    color: white;
+}
+
+.btn-gradient:hover{
+    transform: scale(1.1);
+    color: black;
+}
+
+.css-gradient-animation {
+    background: linear-gradient(92deg, #7ae38b, #bfce61);
+    background-size: 400% 400%;
+
+    -webkit-animation: cssanimationgradient 9s ease infinite;
+    -moz-animation: cssanimationgradient 9s ease infinite;
+    animation: cssanimationgradient 9s ease infinite;
+}
+
+@-webkit-keyframes cssanimationgradient {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@-moz-keyframes cssanimationgradient {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+@keyframes cssanimationgradient {
+    0%{background-position:0% 48%}
+    50%{background-position:100% 53%}
+    100%{background-position:0% 48%}
+}
+
+body{
+    font-family: sans-serif;
+}
+
+.nameInput:focus{
+    outline: none;
+    transition: all 0.5s;
+    transform: scale(1.06);
+}
+
+.passwordInput:focus{
+    outline: none;
+    transition: all 0.5s;
+    transform: scale(1.06);
+}

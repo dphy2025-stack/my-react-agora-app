@@ -4,6 +4,7 @@ import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, remove } from "firebase/database";
 import notificationSound from './assets/welcomeNotif.mp3'; // فایل صوتی نوتیفیکیشن
+import "./App.css";
 
 // تنظیمات Firebase
 const firebaseConfig = {
@@ -217,38 +218,44 @@ const App = () => {
   if (!nameEntered) {
     return (
       <div
+        className="css-gradient-animation"
         style={{
           height: "100vh",
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          flexDirection: "column",
-          background: "#303c43ff",
+          flexDirection: "column"
         }}
       >
+        <h2 style={{marginBottom: "50px"}}>ورود به تماس صوتی</h2>
         <input
+          className="nameInput"
+          dir="rtl"
           type="text"
           placeholder="نام خود را وارد کنید"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px", marginBottom: "10px" }}
+          style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", marginBottom: "10px", backgroundColor: "inherit", border: "solid 1px gray" }}
         />
         <input
+          className="passwordInput"
+          dir="rtl"
           type="password"
           placeholder="پسورد"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
+          style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", backgroundColor: "inherit", border: "solid 1px gray" }}
         />
         <button
+          className="btn-gradient"
           onClick={() => setNameEntered(true)}
           style={{
             marginTop: "15px",
             padding: "10px 20px",
-            borderRadius: "10px",
+            borderRadius: "7px",
             fontSize: "16px",
+            fontWeight: "bold",
             cursor: "pointer",
-            background: "lightgreen",
             border: "none",
           }}
         >
