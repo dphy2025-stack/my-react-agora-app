@@ -29,6 +29,8 @@ const App = () => {
   const [userUID, setUserUID] = useState(null);
   const [timer, setTimer] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [micLowered, setMicLowered] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
@@ -48,7 +50,6 @@ const App = () => {
       const data = snapshot.val() || {};
       setUsersInCall(data);
 
-      // فعال کردن تایمر اگر کاربران بیش از 1 نفر باشند
       if (Object.keys(data).length > 1) setTimerActive(true);
       else setTimerActive(false);
     });
@@ -96,9 +97,8 @@ const App = () => {
     audioCtxRef.current = audioCtx;
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
 
-    // گین برای کاهش صدا
     gainNodeRef.current = audioCtx.createGain();
-    gainNodeRef.current.gain.value = 1; // مقدار پیشفرض
+    gainNodeRef.current.gain.value = 1;
     micSource.connect(gainNodeRef.current);
     const dest = audioCtx.createMediaStreamDestination();
     gainNodeRef.current.connect(dest);
@@ -107,16 +107,27 @@ const App = () => {
     const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
     });
-    customTrack._userName = nameLabel; // ذخیره نام کاربر
+    customTrack._userName = nameLabel;
     return customTrack;
   };
 
-  // کاهش صدا برای شنونده
-  const lowerMicVolume = () => {
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = 0.1; // بسیار کم
+  // کاهش و بازگرداندن صدا و مدیریت overlay
+  const toggleMicVolume = () => {
+    if (!micLowered) {
+      gainNodeRef.current.gain.value = 0.1;
+      setMicLowered(true);
+      setOverlayVisible(true);
+    } else {
+      gainNodeRef.current.gain.value = 1;
+      setMicLowered(false);
+      setOverlayVisible(false);
+    }
   };
-  const resetMicVolume = () => {
-    if (gainNodeRef.current) gainNodeRef.current.gain.value = 1;
+
+  const overlayDoubleClick = () => {
+    gainNodeRef.current.gain.value = 1;
+    setMicLowered(false);
+    setOverlayVisible(false);
   };
 
   // ورود به تماس
@@ -137,7 +148,6 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
@@ -187,9 +197,11 @@ const App = () => {
     if (userUID) remove(ref(db, `callUsers/${userUID}`));
     setInCall(false);
     setConnectionQuality("–");
+    setOverlayVisible(false);
+    setMicLowered(false);
   };
 
-  // صفحه ورود نام و پسورد
+  // صفحه ورود
   if (!nameEntered) {
     return (
       <div
@@ -264,36 +276,22 @@ const App = () => {
             </ul>
           </div>
 
+          {/* دکمه داینامیک کاهش/بازگرداندن صدا */}
           <div style={{ marginTop: "15px" }}>
             <button
-              onClick={lowerMicVolume}
+              onClick={toggleMicVolume}
               style={{
                 padding: "10px 20px",
                 borderRadius: "12px",
                 border: "none",
                 cursor: "pointer",
-                background: "#f94b4be7",
+                background: micLowered ? "#f94b4be7" : "#007bff",
                 color: "white",
                 fontSize: "16px",
                 marginBottom: "10px",
               }}
             >
-              🔈 کاهش صدا
-            </button>
-            <button
-              onClick={resetMicVolume}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                border: "none",
-                cursor: "pointer",
-                background: "#007bff",
-                color: "white",
-                fontSize: "16px",
-                marginBottom: "10px",
-              }}
-            >
-              🔊 صدای اصلی
+              {micLowered ? "🔈 صدای کم" : "🔊 صدای عادی"}
             </button>
           </div>
 
@@ -347,6 +345,22 @@ const App = () => {
           >
             قطع تماس
           </button>
+
+          {/* صفحه سیاه overlay */}
+          {overlayVisible && (
+            <div
+              onDoubleClick={overlayDoubleClick}
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                width: "100vw",
+                height: "100vh",
+                backgroundColor: "rgba(0,0,0,0.95)",
+                zIndex: 9999,
+              }}
+            ></div>
+          )}
         </>
       ) : (
         <button
