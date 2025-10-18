@@ -25,7 +25,7 @@ const App = () => {
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
-  const [userUID, setUserUID] = useState(null);
+  const [userUID, setUserUID] = useState(null); // نگهداری UID برای حذف
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
@@ -36,16 +36,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
 
-  // 🧹 پاک کردن همه کاربران باقی مانده در Firebase هنگام mount
-  useEffect(() => {
-    const usersRef = ref(db, "callUsers/");
-    onValue(usersRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      Object.keys(data).forEach((uid) => remove(ref(db, `callUsers/${uid}`)));
-    });
-  }, []);
-
-  // مانیتور کاربران حاضر از Firebase
+  // 👥 مانیتور کاربران حاضر از Firebase (ریل‌تایم)
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -55,7 +46,7 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // بررسی کیفیت اتصال
+  // 🔹 بررسی کیفیت اتصال
   useEffect(() => {
     const interval = setInterval(async () => {
       if (inCall) {
@@ -74,6 +65,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
+  // 🎤 ایجاد ترک صوتی
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -116,6 +108,7 @@ const App = () => {
     return customTrack;
   };
 
+  // 📞 ورود به تماس
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
@@ -123,13 +116,13 @@ const App = () => {
     }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
-    setUserUID(UID);
+    setUserUID(UID); // ذخیره UID برای حذف
     const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ذخیره نام کاربر در Firebase
+    // ✅ ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
@@ -148,6 +141,7 @@ const App = () => {
     setInCall(true);
   };
 
+  // 🎚️ فعال/غیرفعال‌سازی تغییر صدا
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
     await client.unpublish([localTrackRef.current]);
@@ -161,12 +155,14 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
+  // 🔇 میوت
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
   };
 
+  // 🚪 خروج
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -178,6 +174,7 @@ const App = () => {
     setConnectionQuality("–");
   };
 
+  // 👤 صفحه ورود نام
   if (!nameEntered) {
     return (
       <div
@@ -215,6 +212,7 @@ const App = () => {
     );
   }
 
+  // 🎧 صفحه تماس
   return (
     <div
       style={{
