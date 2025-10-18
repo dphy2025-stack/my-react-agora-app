@@ -141,11 +141,11 @@ const App = () => {
     setInCall(true);
   };
 
-  // فعال کردن تایمر وقتی تعداد کاربران بیشتر از 2 شد
+  // فعال کردن تایمر وقتی تعداد کاربران بیشتر از 1 شد
   useEffect(() => {
-    if (Object.keys(usersInCall).length > 2 && !timerRef.current) {
+    if (Object.keys(usersInCall).length > 1 && !timerRef.current) {
       timerRef.current = setInterval(() => setTimer(prev => prev + 1), 1000);
-    } else if (Object.keys(usersInCall).length <= 2 && timerRef.current) {
+    } else if (Object.keys(usersInCall).length <= 1 && timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
       setTimer(0);
