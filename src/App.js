@@ -19,23 +19,24 @@ const db = getDatabase(app);
 
 const App = () => {
   const [username, setUsername] = useState("");
+  const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
-  const [userUID, setUserUID] = useState(null);
+  const [userUID, setUserUID] = useState(null); // نگهداری UID برای حذف
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
 
-  const APP_ID = "717d9262657d4caab56f3d8a9b7b2089";
+  const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
 
-  // مانیتور کاربران حاضر
+  // مانیتور کاربران حاضر از Firebase
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -109,14 +110,19 @@ const App = () => {
 
   // ورود به تماس
   const joinCall = async () => {
+    if (!username.trim()) {
+      alert("لطفاً نام خود را وارد کنید!");
+      return;
+    }
+
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
-    setUserUID(UID);
+    setUserUID(UID); // ذخیره UID برای حذف
     const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ذخیره نام اولیه در Firebase
+    // ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
@@ -156,7 +162,7 @@ const App = () => {
     setIsMuted(!isMuted);
   };
 
-  // خروج
+  // خروج از تماس
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -168,6 +174,45 @@ const App = () => {
     setConnectionQuality("–");
   };
 
+  // صفحه ورود نام
+  if (!nameEntered) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          flexDirection: "column",
+          background: "#303c43ff",
+        }}
+      >
+        <input
+          type="text"
+          placeholder="نام خود را وارد کنید"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
+        />
+        <button
+          onClick={() => setNameEntered(true)}
+          style={{
+            marginTop: "15px",
+            padding: "10px 20px",
+            borderRadius: "10px",
+            fontSize: "16px",
+            cursor: "pointer",
+            background: "lightgreen",
+            border: "none",
+          }}
+        >
+          ادامه
+        </button>
+      </div>
+    );
+  }
+
+  // صفحه تماس
   return (
     <div
       style={{
@@ -180,40 +225,7 @@ const App = () => {
         padding: "20px",
       }}
     >
-      {/* Input نام مستقیماً در صفحه تماس */}
-      <input
-        type="text"
-        placeholder="نام خود را وارد کنید"
-        value={username}
-        onChange={async (e) => {
-          setUsername(e.target.value);
-          if (userUID) {
-            await set(ref(db, `callUsers/${userUID}`), e.target.value);
-          }
-        }}
-        style={{ padding: "10px", fontSize: "16px", borderRadius: "8px", marginBottom: "15px" }}
-      />
-
-      {!inCall ? (
-        <button
-          onClick={joinCall}
-          style={{
-            padding: "15px 30px",
-            borderRadius: "15px",
-            background: "inherit",
-            color: "lightgreen",
-            fontSize: "18px",
-            border: "solid 1px lightgreen",
-            cursor: "pointer",
-            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
-            marginBottom: "20px",
-          }}
-        >
-          شروع تماس با مخاطب
-        </button>
-      ) : null}
-
-      {inCall && (
+      {inCall ? (
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
           <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
@@ -223,7 +235,7 @@ const App = () => {
             <ul>
               {Object.keys(usersInCall).map((uid) => (
                 <li key={uid} style={{ color: "lightgreen" }}>
-                  {usersInCall[uid]} {/* نمایش real-time username */}
+                  {usersInCall[uid]} {/* نمایش دقیق username */}
                 </li>
               ))}
             </ul>
@@ -280,6 +292,22 @@ const App = () => {
             قطع تماس
           </button>
         </>
+      ) : (
+        <button
+          onClick={joinCall}
+          style={{
+            padding: "15px 30px",
+            borderRadius: "15px",
+            background: "inherit",
+            color: "lightgreen",
+            fontSize: "18px",
+            border: "solid 1px lightgreen",
+            cursor: "pointer",
+            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
+          }}
+        >
+          شروع تماس با مخاطب
+        </button>
       )}
     </div>
   );
