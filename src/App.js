@@ -25,7 +25,7 @@ const App = () => {
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
-  const [userUID, setUserUID] = useState(null); // نگهداری UID برای حذف
+  const [userUID, setUserUID] = useState(null);
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
@@ -35,6 +35,15 @@ const App = () => {
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
+
+  // 🧹 پاک کردن همه کاربران باقی مانده در Firebase هنگام mount
+  useEffect(() => {
+    const usersRef = ref(db, "callUsers/");
+    onValue(usersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      Object.keys(data).forEach((uid) => remove(ref(db, `callUsers/${uid}`)));
+    });
+  }, []);
 
   // مانیتور کاربران حاضر از Firebase
   useEffect(() => {
@@ -65,7 +74,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ایجاد ترک صوتی
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -108,7 +116,6 @@ const App = () => {
     return customTrack;
   };
 
-  // ورود به تماس
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
@@ -116,7 +123,7 @@ const App = () => {
     }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
-    setUserUID(UID); // ذخیره UID برای حذف
+    setUserUID(UID);
     const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
@@ -141,7 +148,6 @@ const App = () => {
     setInCall(true);
   };
 
-  // تغییر صدا
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
     await client.unpublish([localTrackRef.current]);
@@ -155,14 +161,12 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
-  // میوت
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
   };
 
-  // خروج از تماس
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -174,7 +178,6 @@ const App = () => {
     setConnectionQuality("–");
   };
 
-  // صفحه ورود نام
   if (!nameEntered) {
     return (
       <div
@@ -212,7 +215,6 @@ const App = () => {
     );
   }
 
-  // صفحه تماس
   return (
     <div
       style={{
@@ -235,7 +237,7 @@ const App = () => {
             <ul>
               {Object.keys(usersInCall).map((uid) => (
                 <li key={uid} style={{ color: "lightgreen" }}>
-                  {usersInCall[uid]} {/* نمایش دقیق username */}
+                  {usersInCall[uid]}
                 </li>
               ))}
             </ul>
