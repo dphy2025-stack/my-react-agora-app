@@ -19,19 +19,20 @@ const db = getDatabase(app);
 
 const App = () => {
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
-  const [userUID, setUserUID] = useState(null); // نگهداری UID برای حذف
+  const [userUID, setUserUID] = useState(null); 
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
 
-  const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
+  const APP_ID = "717d9262657d4caab56f3d8a9b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
@@ -114,9 +115,13 @@ const App = () => {
       alert("لطفاً نام خود را وارد کنید!");
       return;
     }
+    if (password !== "12213412") {
+      alert("پسورد اشتباه است!");
+      return;
+    }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
-    setUserUID(UID); // ذخیره UID برای حذف
+    setUserUID(UID); 
     const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
@@ -174,7 +179,7 @@ const App = () => {
     setConnectionQuality("–");
   };
 
-  // صفحه ورود نام
+  // صفحه ورود نام + پسورد
   if (!nameEntered) {
     return (
       <div
@@ -192,6 +197,13 @@ const App = () => {
           placeholder="نام خود را وارد کنید"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
+          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px", marginBottom: "10px" }}
+        />
+        <input
+          type="password"
+          placeholder="پسورد"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
           style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
         />
         <button
@@ -235,7 +247,7 @@ const App = () => {
             <ul>
               {Object.keys(usersInCall).map((uid) => (
                 <li key={uid} style={{ color: "lightgreen" }}>
-                  {usersInCall[uid]} {/* نمایش دقیق username */}
+                  {usersInCall[uid]}
                 </li>
               ))}
             </ul>
