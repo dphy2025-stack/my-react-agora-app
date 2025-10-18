@@ -3,6 +3,7 @@ import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, remove } from "firebase/database";
+import notificationSound from './assets/welcomeNotif.mp3'; // فایل صوتی نوتیفیکیشن
 
 // تنظیمات Firebase
 const firebaseConfig = {
@@ -43,18 +44,29 @@ const App = () => {
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
 
-  // مانیتور کاربران حاضر از Firebase
+  // نوتیفیکیشن صوتی
+  const audioRef = useRef(new Audio(notificationSound));
+
+  // مانیتور کاربران حاضر از Firebase و پخش نوتیفیکیشن هنگام ورود
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val() || {};
+      // بررسی کاربر جدید
+      const prevUsers = Object.keys(usersInCall);
+      const newUsers = Object.keys(data).filter(uid => !prevUsers.includes(uid));
+      if (newUsers.length > 0 && nameEntered) {
+        const audio = audioRef.current;
+        audio.volume = 0.3; // صدای ملایم
+        audio.play();
+      }
       setUsersInCall(data);
 
       if (Object.keys(data).length > 1) setTimerActive(true);
       else setTimerActive(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [usersInCall, nameEntered]);
 
   // تایمر
   useEffect(() => {
