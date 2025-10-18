@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
-
-// ✅ اضافه‌شده برای Firebase
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, remove } from "firebase/database";
 
-// پیکربندی Firebase
+// تنظیمات Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyAfZxkA95CrbDyxr6MBUUa7Q4p2AVSm0Ro",
   authDomain: "react-agora-app.firebaseapp.com",
@@ -26,22 +24,19 @@ const App = () => {
   const [connectionQuality, setConnectionQuality] = useState("–");
   const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [client] = useState(() =>
-    AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
-  );
+  const [usersInCall, setUsersInCall] = useState({});
+  const [userUID, setUserUID] = useState(null); // نگهداری UID برای حذف
+  const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
-
-  // لیست کاربران حاضر
-  const [usersInCall, setUsersInCall] = useState({});
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
 
-  // 👥 دریافت زنده کاربران از Firebase
+  // مانیتور کاربران حاضر از Firebase
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -70,11 +65,10 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
+  // ایجاد ترک صوتی
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
-      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
     if (!enableVoice) {
@@ -91,19 +85,16 @@ const App = () => {
     await Tone.start();
     const audioCtx = Tone.context;
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
     const delayNode = audioCtx.createDelay(2.0);
     micSource.connect(delayNode);
 
     const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
     const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
-
     const dest = audioCtx.createMediaStreamDestination();
     const toneSource = new Tone.UserMedia();
     await toneSource.open();
     toneSource.connect(pitchShift);
     pitchShift.connect(reverb);
-
     const toneGain = audioCtx.createGain();
     reverb.connect(toneGain);
     toneGain.connect(dest);
@@ -117,6 +108,7 @@ const App = () => {
     return customTrack;
   };
 
+  // ورود به تماس
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
@@ -124,28 +116,24 @@ const App = () => {
     }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
-
+    setUserUID(UID); // ذخیره UID برای حذف
     const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ✅ افزودن نام به Firebase برای نمایش زنده
+    // ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
-      remove(ref(db, `callUsers/${UID}`));
+      if (userUID) remove(ref(db, `callUsers/${userUID}`));
     });
 
-    // کاربر جدید منتشر کند
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      if (mediaType === "audio") {
-        user.audioTrack.play();
-      }
+      if (mediaType === "audio") user.audioTrack.play();
     });
 
-    // وقتی خارج شود
     client.on("user-left", (user) => {
       remove(ref(db, `callUsers/${user.uid}`));
     });
@@ -153,6 +141,7 @@ const App = () => {
     setInCall(true);
   };
 
+  // تغییر صدا
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
     await client.unpublish([localTrackRef.current]);
@@ -166,23 +155,26 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
+  // میوت
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
   };
 
+  // خروج از تماس
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
       localAudioTrack.close();
     }
     await client.leave();
-    remove(ref(db, `callUsers/${client.uid}`));
+    if (userUID) remove(ref(db, `callUsers/${userUID}`));
     setInCall(false);
     setConnectionQuality("–");
   };
 
+  // صفحه ورود نام
   if (!nameEntered) {
     return (
       <div
@@ -220,6 +212,7 @@ const App = () => {
     );
   }
 
+  // صفحه تماس
   return (
     <div
       style={{
@@ -235,16 +228,14 @@ const App = () => {
       {inCall ? (
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
-          <p style={{ color: "lightgreen" }}>
-            🔹 کیفیت اتصال: {connectionQuality}
-          </p>
+          <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
 
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
             <ul>
               {Object.values(usersInCall).map((name, idx) => (
                 <li key={idx} style={{ color: "lightgreen" }}>
-                  {name}
+                  {name} {/* نام دقیق از input */}
                 </li>
               ))}
             </ul>
@@ -282,9 +273,7 @@ const App = () => {
               marginBottom: "10px",
             }}
           >
-            {isMuted
-              ? "🔇 میوت فعال → آن‌میوت کن"
-              : "🎙️ میکروفون روشن → میوت کن"}
+            {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
           </button>
 
           <button
