@@ -16,7 +16,7 @@ const App = () => {
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
 
-  // لیست کاربران حاضر: uid → name
+  // لیست کاربران حاضر
   const [usersInCall, setUsersInCall] = useState({});
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
@@ -26,10 +26,6 @@ const App = () => {
 
   // بررسی کیفیت اتصال
   useEffect(() => {
-    client.on("connection-state-change", (cur) => {
-      if (cur === "DISCONNECTED") console.log("Waiting..");
-    });
-
     const interval = setInterval(async () => {
       if (inCall) {
         try {
@@ -39,16 +35,15 @@ const App = () => {
           else if (rtt < 300) setConnectionQuality("خوب ⚡");
           else if (rtt < 500) setConnectionQuality("متوسط ⚠️");
           else setConnectionQuality("ضعیف ❌");
-        } catch (e) {
+        } catch {
           setConnectionQuality("–");
         }
       }
     }, 3000);
-
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  const createVoiceTrack = async (enableVoice) => {
+  const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -56,12 +51,14 @@ const App = () => {
     }
 
     if (!enableVoice) {
-      return await AgoraRTC.createMicrophoneAudioTrack({
+      const track = await AgoraRTC.createMicrophoneAudioTrack({
         encoderConfig: "low_quality",
         AEC: true,
         AGC: true,
         ANS: true,
       });
+      track._userName = nameLabel; // ذخیره‌ی نام کاربر روی ترک
+      return track;
     }
 
     await Tone.start();
@@ -85,41 +82,48 @@ const App = () => {
     toneGain.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-    return await AgoraRTC.createCustomAudioTrack({
+    processedTrack.label = nameLabel; // اینجا هم اسم کاربر را می‌گذاریم
+    const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
     });
+    customTrack._userName = nameLabel; // اضافه کردن نام به آبجکت
+    return customTrack;
   };
 
-  // ورود به تماس
   const joinCall = async () => {
     if (!username.trim()) {
       alert("لطفاً نام خود را وارد کنید!");
       return;
     }
 
-    await client.join(APP_ID, CHANNEL, TOKEN, null);
+    const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
 
-    // اضافه کردن نام خود به لیست کاربران حاضر
-    const localUID = client.uid;
-    setUsersInCall((prev) => ({ ...prev, [localUID]: username }));
-
-    const track = await createVoiceTrack(voiceOn);
+    const track = await createVoiceTrack(voiceOn, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ثبت نام کاربران جدید و حذف کاربران خارج شده
+    // اضافه کردن خود کاربر
+    setUsersInCall((prev) => ({ ...prev, [UID]: username }));
+
+    // وقتی کاربر جدید صدا منتشر کند
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-
-      setUsersInCall((prev) => ({
-        ...prev,
-        [user.uid]: user.name || "کاربر ناشناس",
-      }));
-
-      if (mediaType === "audio") user.audioTrack.play();
+      if (mediaType === "audio") {
+        const audioTrack = user.audioTrack;
+        const userName =
+          audioTrack?.mediaStreamTrack?.label ||
+          audioTrack?._userName ||
+          `کاربر ${user.uid}`;
+        setUsersInCall((prev) => ({
+          ...prev,
+          [user.uid]: userName,
+        }));
+        user.audioTrack.play();
+      }
     });
 
+    // وقتی کاربر خارج شود
     client.on("user-left", (user) => {
       setUsersInCall((prev) => {
         const copy = { ...prev };
@@ -133,23 +137,20 @@ const App = () => {
 
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
-
     await client.unpublish([localTrackRef.current]);
     localTrackRef.current.stop();
-    localTrackRef.current.close && localTrackRef.current.close();
+    localTrackRef.current.close?.();
 
-    const newTrack = await createVoiceTrack(!voiceOn);
+    const newTrack = await createVoiceTrack(!voiceOn, username);
     localTrackRef.current = newTrack;
     setLocalAudioTrack(newTrack);
     await client.publish([newTrack]);
-
     setVoiceOn(!voiceOn);
   };
 
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
-    if (isMuted) await localTrackRef.current.setEnabled(true);
-    else await localTrackRef.current.setEnabled(false);
+    await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
   };
 
@@ -164,7 +165,6 @@ const App = () => {
     setUsersInCall({});
   };
 
-  // فرم وارد کردن نام
   if (!nameEntered) {
     return (
       <div
@@ -202,7 +202,6 @@ const App = () => {
     );
   }
 
-  // رابط کاربری تماس
   return (
     <div
       style={{
@@ -222,7 +221,6 @@ const App = () => {
             🔹 کیفیت اتصال: {connectionQuality}
           </p>
 
-          {/* لیست کاربران حاضر */}
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
             <ul>
@@ -250,7 +248,7 @@ const App = () => {
           >
             {voiceOn
               ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
-              : "🟢 تغییر صدا **غیر فعال** → فعال کن"}
+              : "🟢 تغییر صدا **غیرفعال** → فعال کن"}
           </button>
 
           <button
