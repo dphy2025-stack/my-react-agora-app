@@ -27,19 +27,19 @@ const App = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
   const [userUID, setUserUID] = useState(null);
+  const [timer, setTimer] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
-  const gainNodeRef = useRef(null); // GainNode مستقل برای کنترل صدای کم
-  const audioCtxRef = useRef(null); // Context مستقل
+  const gainNodeRef = useRef(null);
+  const audioCtxRef = useRef(null);
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
     "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
-
-  const PASSWORD = "12213412"; // پسورد ثابت
 
   // مانیتور کاربران حاضر از Firebase
   useEffect(() => {
@@ -47,9 +47,24 @@ const App = () => {
     const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val() || {};
       setUsersInCall(data);
+
+      // فعال کردن تایمر اگر کاربران بیش از 1 نفر باشند
+      if (Object.keys(data).length > 1) setTimerActive(true);
+      else setTimerActive(false);
     });
     return () => unsubscribe();
   }, []);
+
+  // تایمر
+  useEffect(() => {
+    let interval = null;
+    if (timerActive) {
+      interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
+    } else {
+      setTimer(0);
+    }
+    return () => clearInterval(interval);
+  }, [timerActive]);
 
   // بررسی کیفیت اتصال
   useEffect(() => {
@@ -76,50 +91,32 @@ const App = () => {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
-    if (!audioCtxRef.current) audioCtxRef.current = Tone.context; // AudioContext مستقل
-
-    if (!enableVoice) {
-      const track = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: "low_quality",
-        AEC: true,
-        AGC: true,
-        ANS: true,
-      });
-      track._userName = nameLabel;
-      return track;
-    }
-
     await Tone.start();
-    const audioCtx = audioCtxRef.current;
+    const audioCtx = Tone.context;
+    audioCtxRef.current = audioCtx;
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-    const delayNode = audioCtx.createDelay(2.0);
-    micSource.connect(delayNode);
 
-    const pitchShift = new Tone.PitchShift({ pitch: 7, windowSize: 0.1 });
-    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.2 });
+    // گین برای کاهش صدا
+    gainNodeRef.current = audioCtx.createGain();
+    gainNodeRef.current.gain.value = 1; // مقدار پیشفرض
+    micSource.connect(gainNodeRef.current);
     const dest = audioCtx.createMediaStreamDestination();
-    const toneSource = new Tone.UserMedia();
-    await toneSource.open();
-    toneSource.connect(pitchShift);
-    pitchShift.connect(reverb);
-    const toneGain = audioCtx.createGain();
-    reverb.connect(toneGain);
-    toneGain.connect(dest);
-
-    // ایجاد GainNode مستقل برای صدای کم / عادی
-    if (!gainNodeRef.current) {
-      gainNodeRef.current = audioCtx.createGain();
-      toneGain.connect(gainNodeRef.current);
-      gainNodeRef.current.connect(dest);
-    }
+    gainNodeRef.current.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-    processedTrack.label = nameLabel;
     const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
     });
-    customTrack._userName = nameLabel;
+    customTrack._userName = nameLabel; // ذخیره نام کاربر
     return customTrack;
+  };
+
+  // کاهش صدا برای شنونده
+  const lowerMicVolume = () => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = 0.1; // بسیار کم
+  };
+  const resetMicVolume = () => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = 1;
   };
 
   // ورود به تماس
@@ -128,8 +125,7 @@ const App = () => {
       alert("لطفاً نام خود را وارد کنید!");
       return;
     }
-
-    if (password !== PASSWORD) {
+    if (password !== "12213412") {
       alert("پسورد اشتباه است!");
       return;
     }
@@ -141,6 +137,7 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
+    // ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
@@ -180,12 +177,6 @@ const App = () => {
     setIsMuted(!isMuted);
   };
 
-  // کاهش / افزایش صدای مستقل
-  const toggleLowVolume = () => {
-    if (!gainNodeRef.current) return;
-    gainNodeRef.current.gain.value = gainNodeRef.current.gain.value === 1 ? 0.1 : 1;
-  };
-
   // خروج از تماس
   const leaveCall = async () => {
     if (localAudioTrack) {
@@ -220,7 +211,7 @@ const App = () => {
         />
         <input
           type="password"
-          placeholder="پسورد را وارد کنید"
+          placeholder="پسورد"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
@@ -260,6 +251,7 @@ const App = () => {
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
           <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
+          <p style={{ color: "lightgreen" }}>⏱️ تایمر: {Math.floor(timer / 60)}:{("0" + (timer % 60)).slice(-2)}</p>
 
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
@@ -270,6 +262,39 @@ const App = () => {
                 </li>
               ))}
             </ul>
+          </div>
+
+          <div style={{ marginTop: "15px" }}>
+            <button
+              onClick={lowerMicVolume}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: "#f94b4be7",
+                color: "white",
+                fontSize: "16px",
+                marginBottom: "10px",
+              }}
+            >
+              🔈 کاهش صدا
+            </button>
+            <button
+              onClick={resetMicVolume}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: "#007bff",
+                color: "white",
+                fontSize: "16px",
+                marginBottom: "10px",
+              }}
+            >
+              🔊 صدای اصلی
+            </button>
           </div>
 
           <button
@@ -305,22 +330,6 @@ const App = () => {
             }}
           >
             {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
-          </button>
-
-          <button
-            onClick={toggleLowVolume}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: "#ffa500",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-            }}
-          >
-            🔉 صدای کم / عادی
           </button>
 
           <button
