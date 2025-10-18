@@ -29,6 +29,8 @@ const App = () => {
   const [userUID, setUserUID] = useState(null); 
   const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
+  const [timer, setTimer] = useState(0); // شمارش ثانیه
+  const timerRef = useRef(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
 
@@ -111,14 +113,8 @@ const App = () => {
 
   // ورود به تماس
   const joinCall = async () => {
-    if (!username.trim()) {
-      alert("لطفاً نام خود را وارد کنید!");
-      return;
-    }
-    if (password !== "12213412") {
-      alert("پسورد اشتباه است!");
-      return;
-    }
+    if (!username.trim()) { alert("لطفاً نام خود را وارد کنید!"); return; }
+    if (password !== "12213412") { alert("پسورد اشتباه است!"); return; }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID); 
@@ -127,7 +123,6 @@ const App = () => {
     setLocalAudioTrack(track);
     await client.publish([track]);
 
-    // ذخیره نام کاربر در Firebase
     await set(ref(db, `callUsers/${UID}`), username);
 
     window.addEventListener("beforeunload", () => {
@@ -145,6 +140,17 @@ const App = () => {
 
     setInCall(true);
   };
+
+  // فعال کردن تایمر وقتی تعداد کاربران بیشتر از 2 شد
+  useEffect(() => {
+    if (Object.keys(usersInCall).length > 2 && !timerRef.current) {
+      timerRef.current = setInterval(() => setTimer(prev => prev + 1), 1000);
+    } else if (Object.keys(usersInCall).length <= 2 && timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+      setTimer(0);
+    }
+  }, [usersInCall]);
 
   // تغییر صدا
   const toggleVoice = async () => {
@@ -177,47 +183,23 @@ const App = () => {
     if (userUID) remove(ref(db, `callUsers/${userUID}`));
     setInCall(false);
     setConnectionQuality("–");
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setTimer(0);
   };
 
   // صفحه ورود نام + پسورد
   if (!nameEntered) {
     return (
-      <div
-        style={{
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          flexDirection: "column",
-          background: "#303c43ff",
-        }}
-      >
-        <input
-          type="text"
-          placeholder="نام خود را وارد کنید"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px", marginBottom: "10px" }}
-        />
-        <input
-          type="password"
-          placeholder="پسورد"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "8px" }}
-        />
-        <button
-          onClick={() => setNameEntered(true)}
-          style={{
-            marginTop: "15px",
-            padding: "10px 20px",
-            borderRadius: "10px",
-            fontSize: "16px",
-            cursor: "pointer",
-            background: "lightgreen",
-            border: "none",
-          }}
-        >
+      <div style={{height:"100vh", display:"flex", justifyContent:"center", alignItems:"center", flexDirection:"column", background:"#303c43ff"}}>
+        <input type="text" placeholder="نام خود را وارد کنید" value={username} onChange={(e)=>setUsername(e.target.value)}
+          style={{ padding:"10px", fontSize:"16px", borderRadius:"8px", marginBottom:"10px" }}/>
+        <input type="password" placeholder="پسورد" value={password} onChange={(e)=>setPassword(e.target.value)}
+          style={{ padding:"10px", fontSize:"16px", borderRadius:"8px" }}/>
+        <button onClick={()=>setNameEntered(true)}
+          style={{ marginTop:"15px", padding:"10px 20px", borderRadius:"10px", fontSize:"16px", cursor:"pointer", background:"lightgreen", border:"none" }}>
           ادامه
         </button>
       </div>
@@ -226,98 +208,34 @@ const App = () => {
 
   // صفحه تماس
   return (
-    <div
-      style={{
-        height: "100vh",
-        display: "flex",
-        justifyContent: "flex-start",
-        alignItems: "flex-start",
-        background: "#303c43ff",
-        flexDirection: "column",
-        padding: "20px",
-      }}
-    >
+    <div style={{height:"100vh", display:"flex", justifyContent:"flex-start", alignItems:"flex-start", background:"#303c43ff", flexDirection:"column", padding:"20px"}}>
       {inCall ? (
         <>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
           <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
+          {timer > 0 && <p style={{ color: "yellow" }}>⏱ زمان تماس: {Math.floor(timer/60)}:{('0'+(timer%60)).slice(-2)}</p>}
 
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
             <ul>
-              {Object.keys(usersInCall).map((uid) => (
-                <li key={uid} style={{ color: "lightgreen" }}>
-                  {usersInCall[uid]}
-                </li>
-              ))}
+              {Object.keys(usersInCall).map(uid => <li key={uid} style={{color:"lightgreen"}}>{usersInCall[uid]}</li>)}
             </ul>
           </div>
 
-          <button
-            onClick={toggleVoice}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: voiceOn ? "#f94b4be7" : "lightgreen",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-              marginTop: "15px",
-            }}
-          >
-            {voiceOn
-              ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
-              : "🟢 تغییر صدا **غیرفعال** → فعال کن"}
+          <button onClick={toggleVoice} style={{ padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background: voiceOn ? "#f94b4be7" : "lightgreen", color:"white", fontSize:"16px", marginBottom:"10px", marginTop:"15px"}}>
+            {voiceOn ? "🔴 تغییر صدا **فعال** → غیرفعال کن" : "🟢 تغییر صدا **غیرفعال** → فعال کن"}
           </button>
 
-          <button
-            onClick={toggleMute}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: isMuted ? "gray" : "#007bff",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-            }}
-          >
+          <button onClick={toggleMute} style={{ padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background: isMuted ? "gray" : "#007bff", color:"white", fontSize:"16px", marginBottom:"10px"}}>
             {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
           </button>
 
-          <button
-            onClick={leaveCall}
-            style={{
-              padding: "15px 30px",
-              borderRadius: "15px",
-              background: "#f94b4be7",
-              color: "white",
-              border: "none",
-              cursor: "pointer",
-              marginTop: "10px",
-              fontSize: "17px",
-            }}
-          >
+          <button onClick={leaveCall} style={{ padding:"15px 30px", borderRadius:"15px", background:"#f94b4be7", color:"white", border:"none", cursor:"pointer", marginTop:"10px", fontSize:"17px"}}>
             قطع تماس
           </button>
         </>
       ) : (
-        <button
-          onClick={joinCall}
-          style={{
-            padding: "15px 30px",
-            borderRadius: "15px",
-            background: "inherit",
-            color: "lightgreen",
-            fontSize: "18px",
-            border: "solid 1px lightgreen",
-            cursor: "pointer",
-            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
-          }}
-        >
+        <button onClick={joinCall} style={{ padding:"15px 30px", borderRadius:"15px", background:"inherit", color:"lightgreen", fontSize:"18px", border:"solid 1px lightgreen", cursor:"pointer", boxShadow:"0px 0px 10px rgba(26, 255, 0, 0.44)"}}>
           شروع تماس با مخاطب
         </button>
       )}
