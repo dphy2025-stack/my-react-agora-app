@@ -43,7 +43,7 @@ const App = () => {
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
-    "007eJxTYKjau9nrJnPLJf33P4sXfghyDdpdPntz8W6mIln3vPSHNzkUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsW6I+ZzQEMjIcOvqYgREKQXwehpz8slTd5IzEvLzUHAYGANlxJHk=";
+    "007eJxTYNg9r/D2xL1mt4TOJjNffpa533/76+Ij3o/dK/ne805dwPlfgcHc0DzF0sjMyMzUPMUkOTExydQszTjFItEy0TzJyMDCsnH/l4yGQEYGgWdhLIwMEAji8zDk5Jel6iZnJOblpeYwMAAAGsEkwQ==";
 
   // نوتیفیکیشن صوتی
   const audioRef = useRef(new Audio(notificationSound));
