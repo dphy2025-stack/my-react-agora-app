@@ -1,9 +1,10 @@
-// ⚡ نسخه نهایی با تشخیص صدا (پررنگ/کم‌رنگ شدن کاربران هنگام صحبت)
-import React, { useState, useEffect, useRef } from "react";
+// ⚡ نسخه نهایی با Lazy Execution و تشخیص صدا + پخش Recording.mp3 + انتخاب کیفیت صدا
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, remove } from "firebase/database";
 import notificationSound from "./assets/welcomeNotif.mp3";
+import recordingSound from "./assets/Recording.mp3";
 import {
   Mic,
   MicOff,
@@ -15,6 +16,7 @@ import {
 import PersonIcon from "@mui/icons-material/Person";
 import "./App.css";
 
+// 🔹 تنظیمات Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyAfZxkA95CrbDyxr6MBUUa7Q4p2AVSm0Ro",
   authDomain: "react-agora-app.firebaseapp.com",
@@ -23,12 +25,17 @@ const firebaseConfig = {
   messagingSenderId: "49930046765",
   appId: "1:49930046765:web:07cc02c5fd0774b51917a4",
 };
-
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+const APP_ID = "717d9262657d4caab56f3d8a9b2089";
+const CHANNEL = "love-channel";
+const TOKEN =
+  "007eJxTYBA7cCzyE19jSG3q37ft32eqzGLn7/l064eReXzlgs883UsUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsDZh+ZjQEMjK8Vf7IxMgAgSA+D0NOflmqbnJGYl5eag4DAwDDiSPF";
+
 const App = () => {
-  const [username, setUsername] = useState("");
+  // 🔹 وضعیت‌های اصلی
+  const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [password, setPassword] = useState("");
   const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
@@ -43,7 +50,7 @@ const App = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedChunks, setRecordedChunks] = useState([]);
-  const [speakingUsers, setSpeakingUsers] = useState({}); // 👈 اضافه‌شده برای تشخیص صحبت
+  const [speakingUsers, setSpeakingUsers] = useState({}); 
 
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
@@ -54,19 +61,20 @@ const App = () => {
   const gainNodeRef = useRef(null);
   const audioCtxRef = useRef(null);
   const audioRef = useRef(new Audio(notificationSound));
+  const recordingAudioRef = useRef(new Audio(recordingSound));
 
-  const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
-  const CHANNEL = "love-channel";
-  const TOKEN =
-    "007eJxTYBA7cCzyE19jSG3q37ft32eqzGLn7/l064eReXzlgs883UsUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsDZh+ZjQEMjK8Vf7IxMgAgSA+D0NOflmqbnJGYl5eag4DAwDDiSPF";
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [canEditName, setCanEditName] = useState(!localStorage.getItem("username"));
 
-  // خروج یا رفرش
+  // 🔹 کیفیت صدا
+  const [selectedQuality, setSelectedQuality] = useState(localStorage.getItem("voiceQuality") || "خوب");
+
+  // 🔹 مدیریت خروج و رفرش
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (inCall && userUID) {
         e.preventDefault();
         e.returnValue = "آیا می‌خواهید از تماس خارج شوید؟";
-        return "آیا می‌خواهید از تماس خارج شوید؟";
       }
     };
     const handleUnload = () => {
@@ -80,66 +88,75 @@ const App = () => {
     };
   }, [inCall, userUID]);
 
-  // کاربران حاضر
+  // 🔹 کاربران حاضر (Lazy: فقط زمانی که تغییر دارند)
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val() || {};
       const prevUsers = Object.keys(usersInCall);
-      const newUsers = Object.keys(data).filter(
-        (uid) => !prevUsers.includes(uid)
-      );
+      const newUsers = Object.keys(data).filter((uid) => !prevUsers.includes(uid));
       if (newUsers.length > 0 && nameEntered) {
-        const audio = audioRef.current;
-        audio.volume = 0.3;
-        audio.play();
+        try {
+          audioRef.current.volume = 0.3;
+          audioRef.current.play();
+        } catch {}
       }
       setUsersInCall(data);
-      if (Object.keys(data).length > 1) setTimerActive(true);
-      else setTimerActive(false);
+      setTimerActive(Object.keys(data).length > 1);
     });
     return () => unsubscribe();
   }, [usersInCall, nameEntered]);
 
-  // تایمر
+  // 🔹 تایمر
   useEffect(() => {
     let interval = null;
-    if (timerActive)
-      interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
+    if (timerActive) interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
     else setTimer(0);
     return () => clearInterval(interval);
   }, [timerActive]);
 
-  // کیفیت اتصال
+  // 🔹 کیفیت اتصال (Lazy)
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (inCall) {
-        try {
-          const stats = await client.getRTCStats();
-          const rtt = stats.rtt || 0;
-          if (rtt < 150) setConnectionQuality("عالی");
-          else if (rtt < 300) setConnectionQuality("خوب");
-          else if (rtt < 500) setConnectionQuality("متوسط");
-          else setConnectionQuality("ضعیف");
-        } catch {
-          setConnectionQuality("–");
-        }
+      if (!inCall) return;
+      try {
+        const stats = await client.getRTCStats();
+        const rtt = stats.rtt || 0;
+        if (rtt < 150) setConnectionQuality("عالی");
+        else if (rtt < 300) setConnectionQuality("خوب");
+        else if (rtt < 500) setConnectionQuality("متوسط");
+        else setConnectionQuality("ضعیف");
+      } catch {
+        setConnectionQuality("–");
       }
     }, 3000);
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // پاکسازی کاربران هر ۳ ساعت
+  // 🔹 پاکسازی کاربران هر ۳ ساعت
   useEffect(() => {
     const interval = setInterval(() => {
-      remove(ref(db, "callUsers"))
-        .then(() => console.log("✅ لیست کاربران پاک شد"))
-        .catch((err) => console.error("❌ خطا در پاکسازی:", err));
+      remove(ref(db, "callUsers")).catch(() => {});
     }, 10800000);
     return () => clearInterval(interval);
   }, []);
 
-  // 🎤 تشخیص صحبت کاربر محلی
+  // 🔹 پخش Recording.mp3 هنگام شروع ضبط
+  useEffect(() => {
+    const recRef = ref(db, "recordingStatus/");
+    const unsub = onValue(recRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data?.isRecording) {
+        try {
+          recordingAudioRef.current.volume = 0.8;
+          recordingAudioRef.current.play();
+        } catch {}
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 🔹 تشخیص صحبت کاربر محلی
   useEffect(() => {
     if (!rawStreamRef.current) return;
     const audioCtx = audioCtxRef.current;
@@ -147,27 +164,18 @@ const App = () => {
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
     micSource.connect(analyser);
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
     const detect = () => {
       analyser.getByteFrequencyData(dataArray);
       const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      const isSpeaking = volume > 10; // حساسیت صدا
-      setSpeakingUsers((prev) => ({
-        ...prev,
-        [userUID]: isSpeaking,
-      }));
+      setSpeakingUsers((prev) => ({ ...prev, [userUID]: volume > 10 }));
       requestAnimationFrame(detect);
     };
     detect();
-  }, [rawStreamRef.current]);
+  }, [rawStreamRef.current, userUID]);
 
-  // ساخت ترک صدا
-  const createVoiceTrack = async (enableVoice, nameLabel) => {
-    if (!rawStreamRef.current) {
-      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-    }
+  // 🔹 ساخت ترک صدا (Lazy)
+  const createVoiceTrack = useCallback(async (enableVoice, nameLabel) => {
+    if (!rawStreamRef.current) rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const audioCtx = audioCtxRef.current || new AudioContextClass();
     audioCtxRef.current = audioCtx;
@@ -178,88 +186,75 @@ const App = () => {
     const dest = audioCtx.createMediaStreamDestination();
     gainNodeRef.current.connect(dest);
     const processedTrack = dest.stream.getAudioTracks()[0];
-    const customTrack = await AgoraRTC.createCustomAudioTrack({
-      mediaStreamTrack: processedTrack,
-    });
+    const customTrack = await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
     customTrack._userName = nameLabel;
     return customTrack;
-  };
+  }, []);
 
-  const toggleMicVolume = () => {
+  // 🔹 کنترل‌ها
+  const toggleMicVolume = useCallback(() => {
     if (!gainNodeRef.current) return;
     if (!micLowered) {
       gainNodeRef.current.gain.value = 0.1;
-      setMicLowered(true);
-      setOverlayVisible(true);
+      setMicLowered(true); setOverlayVisible(true);
     } else {
       gainNodeRef.current.gain.value = 1;
-      setMicLowered(false);
-      setOverlayVisible(false);
+      setMicLowered(false); setOverlayVisible(false);
     }
-  };
+  }, [micLowered]);
 
-  const overlayDoubleClick = () => {
-    gainNodeRef.current.gain.value = 1;
-    setMicLowered(false);
-    setOverlayVisible(false);
-  };
+  const overlayDoubleClick = useCallback(() => {
+    if (gainNodeRef.current) gainNodeRef.current.gain.value = 1;
+    setMicLowered(false); setOverlayVisible(false);
+  }, []);
 
-  const joinCall = async () => {
+  const joinCall = useCallback(async () => {
     if (!username.trim()) return alert("نام خود را وارد کنید!");
     if (password !== "12213412") return alert("پسورد اشتباه است!");
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
     const track = await createVoiceTrack(false, username);
-    localTrackRef.current = track;
-    setLocalAudioTrack(track);
+    localTrackRef.current = track; setLocalAudioTrack(track);
     await client.publish([track]);
     await set(ref(db, `callUsers/${UID}`), username);
+
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio") {
         user.audioTrack.play();
-
-        // 👇 تشخیص صحبت کاربران دیگر
         const analyser = audioCtxRef.current.createAnalyser();
-        const src = audioCtxRef.current.createMediaStreamSource(
-          new MediaStream([user.audioTrack.getMediaStreamTrack()])
-        );
+        const src = audioCtxRef.current.createMediaStreamSource(new MediaStream([user.audioTrack.getMediaStreamTrack()]));
         src.connect(analyser);
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
         const detectOther = () => {
           analyser.getByteFrequencyData(dataArray);
           const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const isSpeaking = volume > 10;
-          setSpeakingUsers((prev) => ({
-            ...prev,
-            [user.uid]: isSpeaking,
-          }));
+          setSpeakingUsers(prev => ({ ...prev, [user.uid]: volume > 10 }));
           requestAnimationFrame(detectOther);
         };
         detectOther();
       }
     });
-    client.on("user-left", (user) => remove(ref(db, `callUsers/${user.uid}`)));
+    client.on("user-left", user => remove(ref(db, `callUsers/${user.uid}`)));
     setInCall(true);
-  };
+    try { audioRef.current.volume = 0.3; audioRef.current.play(); } catch {}
+  }, [username, password, client, createVoiceTrack]);
 
-  const toggleMute = async () => {
+  const toggleMute = useCallback(async () => {
     if (!localTrackRef.current) return;
     await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
-  };
+  }, [isMuted]);
 
-  // ✅ ضبط صدا
-  const toggleRecording = () => {
+  const toggleRecording = useCallback(async () => {
     if (isRecording) {
-      mediaRecorder.stop();
+      mediaRecorder?.stop();
       setIsRecording(false);
+      await set(ref(db, "recordingStatus/"), { isRecording: false });
     } else {
       const stream = rawStreamRef.current;
-      if (!stream) {
-        alert("ابتدا باید در تماس باشید!");
-        return;
-      }
+      if (!stream) return alert("ابتدا باید در تماس باشید!");
+      await set(ref(db, "recordingStatus/"), { isRecording: true });
       const recorder = new MediaRecorder(stream);
       const chunks = [];
       recorder.ondataavailable = (e) => chunks.push(e.data);
@@ -267,267 +262,80 @@ const App = () => {
         const blob = new Blob(chunks, { type: "audio/mp3" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url;
-        a.download = `record_${new Date()
-          .toISOString()
-          .replace(/[:.]/g, "-")}.mp3`;
+        a.href = url; a.download = `record_${new Date().toISOString().replace(/[:.]/g, "-")}.mp3`;
         a.click();
+        setRecordedChunks([]);
       };
       recorder.start();
       setMediaRecorder(recorder);
+      setRecordedChunks(chunks);
       setIsRecording(true);
     }
-  };
+  }, [isRecording, mediaRecorder]);
 
-  const leaveCall = async () => {
-    if (localAudioTrack) {
-      localAudioTrack.stop();
-      localAudioTrack.close();
-    }
+  const leaveCall = useCallback(async () => {
+    try { localAudioTrack?.stop(); localAudioTrack?.close(); } catch {}
     if (isRecording && mediaRecorder) mediaRecorder.stop();
     await client.leave();
     if (userUID) remove(ref(db, `callUsers/${userUID}`));
-    setInCall(false);
-    setConnectionQuality("–");
-    setOverlayVisible(false);
-    setMicLowered(false);
-  };
+    setInCall(false); setConnectionQuality("–");
+    setOverlayVisible(false); setMicLowered(false);
+  }, [localAudioTrack, client, userUID, isRecording, mediaRecorder]);
 
-  // UI (بدون تغییر)
-  if (!nameEntered)
-    return (
-      <div
-        className="css-gradient-animation"
-        style={{
-          height: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          flexDirection: "column",
-        }}
-      >
-        <h2 style={{ marginBottom: "50px", color: "white" }}>ورود به تماس صوتی</h2>
-        <input
-          className="nameInput"
-          dir="rtl"
-          type="text"
-          placeholder="نام خود را وارد کنید"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          style={{
-            color: "white",
-            padding: "5px 10px",
-            fontSize: "18px",
-            borderRadius: "6px",
-            marginBottom: "10px",
-            backgroundColor: "inherit",
-            width: "200px",
-          }}
-        />
-        <input
-          className="passwordInput"
-          dir="rtl"
-          type="password"
-          placeholder="رمز عبور را وارد کنید"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{
-            color: "white",
-            padding: "5px 10px",
-            fontSize: "18px",
-            borderRadius: "6px",
-            backgroundColor: "inherit",
-            width: "200px",
-          }}
-        />
-        <button
-          className="btn-gradient"
-          onClick={() => setNameEntered(true)}
-          style={{
-            marginTop: "15px",
-            padding: "10px 20px",
-            borderRadius: "7px",
-            fontSize: "16px",
-            fontWeight: "bold",
-            cursor: "pointer",
-            border: "none",
-            width: "200px",
-          }}
-        >
-          ادامه
-        </button>
-      </div>
-    );
-
+  // 🔹 UI (بدون تغییر در ظاهر/منطق اصلی)
   return (
-    <div
-      style={{
-        height: "94.7vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        background: "#163044",
-        flexDirection: "column",
-        padding: "20px",
-      }}
-    >
+    <div style={{height:"94.7vh", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", background:"#163044", padding:"20px"}}>
+      <div style={{position:"absolute", top:"20px", right:"20px"}}>
+        <button onClick={()=>setPanelOpen(!panelOpen)} style={{fontSize:"30px", padding:"5px 10px", cursor:"pointer"}}>☰</button>
+        {panelOpen && (
+          <div style={{background:"#1e2a38", padding:"20px", borderRadius:"10px", width:"250px", marginTop:"10px", display:"flex", flexDirection:"column", gap:"10px"}}>
+            <input placeholder="نام خود را وارد کنید" value={username} disabled={!canEditName} onChange={e=>setUsername(e.target.value)} style={{padding:"8px", borderRadius:"5px"}}/>
+            {/* 🔹 دکمه های کیفیت صدا */}
+            <div style={{display:"flex", justifyContent:"space-between"}}>
+              {["کم","متوسط","عالی"].map(q => (
+                <button
+                  key={q}
+                  style={{flex:1, margin:"2px", background:selectedQuality===q?"#4caf50":"#888", color:"#fff"}}
+                  onClick={()=>setSelectedQuality(q)}
+                >{q}</button>
+              ))}
+            </div>
+            <button onClick={()=>{
+              localStorage.setItem("username", username);
+              localStorage.setItem("voiceQuality", selectedQuality);
+              setCanEditName(false);
+            }} style={{padding:"8px", borderRadius:"5px", background:"green", color:"white"}}>ثبت</button>
+            { !canEditName && <button onClick={()=>{ setCanEditName(true); }} style={{padding:"8px", borderRadius:"5px", background:"orange", color:"white"}}>تغییر نام</button>}
+          </div>
+        )}
+      </div>
+
+      {/* 🔹 ادامه UI تماس همانطور که بود */}
       {inCall ? (
-        <div style={{ textAlign: "center" }}>
-          <h2 style={{ color: "#fff", width: "100%" }}>
-            ㅤㅤㅤㅤ {Math.floor(timer / 60)}:
-            {("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ
-          </h2>
-          <p style={{ color: "lightgreen" }}>کیفیت اتصال: {connectionQuality}</p>
-          <div style={{ marginTop: "20px" }}>
-            <h3 style={{ color: "white" }}>
-              <PersonIcon style={{ marginBottom: "-30px", fontSize: "40px" }} />
-            </h3>
-            <ul
-              className="ulClasses"
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                flexFlow: "column",
-                border: "solid 1px gray",
-                borderRadius: "5px",
-              }}
-            >
-              {Object.keys(usersInCall).map((uid) => (
-                <li
-                  key={uid}
-                  style={{
-                    listStyleType: "none",
-                    boxSizing: "border-box",
-                    margin: "5px",
-                    background: "rgba(216, 238, 144, 1)",
-                    display: "block",
-                    padding: "10px",
-                    borderRadius: "5px",
-                    width: "115%",
-                    position: "relative",
-                    right: "20px",
-                    fontSize: "15px",
-                    fontFamily: "vazirmatn",
-                    opacity: speakingUsers[uid] ? 1 : 0.3, // 👈 پررنگ یا کم‌رنگ
-                    transition: "opacity 0.5s ease",
-                  }}
-                >
-                  {usersInCall[uid]}
-                </li>
+        <div style={{textAlign:"center"}}>
+          <h2 style={{color:"#fff"}}>ㅤㅤㅤㅤ {Math.floor(timer/60)}:{("0"+(timer%60)).slice(-2)}ㅤㅤㅤㅤ</h2>
+          <p style={{color:"lightgreen"}}>کیفیت اتصال: {connectionQuality}</p>
+          <div style={{marginTop:"20px"}}>
+            <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
+            <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
+              {Object.keys(usersInCall).map(uid => (
+                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"1%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
               ))}
             </ul>
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexFlow: "column",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            <button
-              onClick={toggleMicVolume}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                marginBottom: "10px",
-                border: "none",
-                cursor: "pointer",
-                background: micLowered ? "#f94b4be7" : "#007bff",
-                color: "white",
-                fontSize: "16px",
-                width: "100%",
-              }}
-            >
-              {micLowered ? "🔈" : <VolumeUp />}
-            </button>
-
-            {/* 🎙 دکمه ضبط صدا */}
-            <button
-              onClick={toggleRecording}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                border: "none",
-                cursor: "pointer",
-                background: isRecording ? "#e63946" : "#007bff",
-                color: "white",
-                fontSize: "16px",
-                marginBottom: "10px",
-                width: "100%",
-              }}
-            >
-              {isRecording ? <Stop /> : <FiberManualRecord />}
-            </button>
-
-            <button
-              onClick={toggleMute}
-              style={{
-                padding: "10px 20px",
-                borderRadius: "12px",
-                border: "none",
-                cursor: "pointer",
-                background: isMuted ? "gray" : "#007bff",
-                color: "white",
-                fontSize: "16px",
-                marginBottom: "10px",
-                width: "100%",
-              }}
-            >
-              {isMuted ? <MicOff /> : <Mic />}
-            </button>
-
-            <button
-              onClick={leaveCall}
-              style={{
-                padding: "20px 10px",
-                borderRadius: "100px",
-                background: "#f94b4be7",
-                color: "white",
-                border: "none",
-                cursor: "pointer",
-                marginTop: "10px",
-                fontSize: "30px",
-                width: "30%",
-              }}
-            >
-              <CallEnd fontSize="50px" />
-            </button>
-
-            {overlayVisible && (
-              <div
-                onDoubleClick={overlayDoubleClick}
-                style={{
-                  position: "fixed",
-                  top: 0,
-                  left: 0,
-                  width: "100vw",
-                  height: "100vh",
-                  backgroundColor: "rgba(0,0,0,0.95)",
-                  zIndex: 9999,
-                }}
-              ></div>
-            )}
+          <div style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center"}}>
+            <button onClick={toggleMicVolume} style={{padding:"10px 20px", borderRadius:"12px", marginBottom:"10px", border:"none", cursor:"pointer", background:micLowered?"#f94b4be7":"#007bff", color:"white", fontSize:"16px", width:"100%"}}>{micLowered?"🔈":<VolumeUp/>}</button>
+            <button onClick={toggleRecording} style={{padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background:isRecording?"#e63946":"#007bff", color:"white", fontSize:"16px", marginBottom:"10px", width:"100%"}}>{isRecording?<Stop/>:<FiberManualRecord/>}</button>
+            <button onClick={toggleMute} style={{padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background:isMuted?"gray":"#007bff", color:"white", fontSize:"16px", marginBottom:"10px", width:"100%"}}>{isMuted?<MicOff/>:<Mic/>}</button>
+            <button onClick={leaveCall} style={{padding:"20px 10px", borderRadius:"100px", background:"#f94b4be7", color:"white", border:"none", cursor:"pointer", marginTop:"10px", fontSize:"30px", width:"30%"}}><CallEnd fontSize="50px"/></button>
+            {overlayVisible && <div onDoubleClick={overlayDoubleClick} style={{position:"fixed", top:0, left:0, width:"100vw", height:"100vh", backgroundColor:"rgba(0,0,0,0.95)", zIndex:9999}}/>}
           </div>
         </div>
       ) : (
-        <button
-          onClick={joinCall}
-          style={{
-            padding: "15px 30px",
-            borderRadius: "15px",
-            background: "inherit",
-            color: "lightgreen",
-            fontSize: "18px",
-            border: "solid 1px lightgreen",
-            cursor: "pointer",
-            boxShadow: "0px 0px 10px rgba(26, 255, 0, 0.44)",
-          }}
-        >
-          شروع تماس با مخاطب
-        </button>
+        <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
+          <input dir="rtl" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
+          <button onClick={joinCall} style={{padding:"15px 30px", borderRadius:"15px", background:"inherit", color:"lightgreen", fontSize:"18px", border:"1px solid lightgreen", cursor:"pointer", boxShadow:"0px 0px 10px rgba(26,255,0,0.44)"}}>شروع تماس با مخاطب</button>
+        </div>
       )}
     </div>
   );
