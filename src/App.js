@@ -58,7 +58,7 @@ const App = () => {
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
-    "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
+    "007eJxTYBA7cCzyE19jSG3q37ft32eqzGLn7/l064eReXzlgs883UsUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsDZh+ZjQEMjK8Vf7IxMgAgSA+D0NOflmqbnJGYl5eag4DAwDDiSPF";
 
   // خروج یا رفرش
   useEffect(() => {
@@ -151,7 +151,7 @@ const App = () => {
     const detect = () => {
       analyser.getByteFrequencyData(dataArray);
       const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      const isSpeaking = volume > 20; // حساسیت صدا
+      const isSpeaking = volume > 10; // حساسیت صدا
       setSpeakingUsers((prev) => ({
         ...prev,
         [userUID]: isSpeaking,
@@ -229,7 +229,7 @@ const App = () => {
         const detectOther = () => {
           analyser.getByteFrequencyData(dataArray);
           const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const isSpeaking = volume > 9;
+          const isSpeaking = volume > 10;
           setSpeakingUsers((prev) => ({
             ...prev,
             [user.uid]: isSpeaking,
@@ -383,12 +383,13 @@ const App = () => {
               <PersonIcon style={{ marginBottom: "-30px", fontSize: "40px" }} />
             </h3>
             <ul
+              className="ulClasses"
               style={{
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
                 flexFlow: "column",
-                border: "solid 1px white",
+                border: "solid 1px gray",
                 borderRadius: "5px",
               }}
             >
