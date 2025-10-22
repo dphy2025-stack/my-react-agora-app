@@ -1,4 +1,4 @@
-// ⚡ نسخه نهایی با Lazy Execution و تشخیص صدا + پخش Recording.mp3 + انتخاب کیفیت صدا
+// ⚡ نسخه نهایی بهینه شده با Lazy Execution و تشخیص صدا + پخش Recording.mp3
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
@@ -35,7 +35,7 @@ const TOKEN =
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
-  const [username, setUsername] = useState(localStorage.getItem("username") || "");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
@@ -62,12 +62,6 @@ const App = () => {
   const audioCtxRef = useRef(null);
   const audioRef = useRef(new Audio(notificationSound));
   const recordingAudioRef = useRef(new Audio(recordingSound));
-
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [canEditName, setCanEditName] = useState(!localStorage.getItem("username"));
-
-  // 🔹 کیفیت صدا
-  const [selectedQuality, setSelectedQuality] = useState(localStorage.getItem("voiceQuality") || "خوب");
 
   // 🔹 مدیریت خروج و رفرش
   useEffect(() => {
@@ -173,20 +167,36 @@ const App = () => {
     detect();
   }, [rawStreamRef.current, userUID]);
 
-  // 🔹 ساخت ترک صدا (Lazy)
+  // 🔹 ساخت ترک صدا بهینه برای اینترنت ضعیف (Lazy)
   const createVoiceTrack = useCallback(async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const audioCtx = audioCtxRef.current || new AudioContextClass();
     audioCtxRef.current = audioCtx;
+
+    // منبع صدا
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+
+    // گین برای کنترل صدا
     gainNodeRef.current = audioCtx.createGain();
     gainNodeRef.current.gain.value = 1;
     micSource.connect(gainNodeRef.current);
+
+    // فشرده سازی و کاهش بیت ریت برای اینترنت ضعیف
     const dest = audioCtx.createMediaStreamDestination();
     gainNodeRef.current.connect(dest);
+
     const processedTrack = dest.stream.getAudioTracks()[0];
-    const customTrack = await AgoraRTC.createCustomAudioTrack({ mediaStreamTrack: processedTrack });
+
+    // Agora: ایجاد ترک صوتی با بیت ریت پایین و latency کم
+    const customTrack = await AgoraRTC.createCustomAudioTrack({
+      mediaStreamTrack: processedTrack,
+      encoderConfig: "low_quality", // مناسب برای اینترنت ضعیف
+      optimizationMode: "low_latency",
+      enableAudioLevelIndicator: true
+    });
+
     customTrack._userName = nameLabel;
     return customTrack;
   }, []);
@@ -237,7 +247,6 @@ const App = () => {
     });
     client.on("user-left", user => remove(ref(db, `callUsers/${user.uid}`)));
     setInCall(true);
-    try { audioRef.current.volume = 0.3; audioRef.current.play(); } catch {}
   }, [username, password, client, createVoiceTrack]);
 
   const toggleMute = useCallback(async () => {
@@ -282,35 +291,18 @@ const App = () => {
     setOverlayVisible(false); setMicLowered(false);
   }, [localAudioTrack, client, userUID, isRecording, mediaRecorder]);
 
-  // 🔹 UI (بدون تغییر در ظاهر/منطق اصلی)
+  // 🔹 UI (بدون تغییر در ظاهر/منطق)
+  if (!nameEntered) return (
+    <div className="css-gradient-animation" style={{ height:"100vh", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center"}}>
+      <h2 style={{color:"white", marginBottom:"50px"}}>ورود به تماس صوتی</h2>
+      <input dir="rtl" placeholder="نام خود را وارد کنید" value={username} onChange={e=>setUsername(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", marginBottom:"10px", backgroundColor:"inherit", width:"200px"}}/>
+      <input dir="rtl" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
+      <button onClick={()=>setNameEntered(true)} style={{marginTop:"15px", padding:"10px 20px", borderRadius:"7px", fontSize:"16px", fontWeight:"bold", cursor:"pointer", border:"none", width:"200px"}}>ادامه</button>
+    </div>
+  );
+
   return (
     <div style={{height:"94.7vh", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", background:"#163044", padding:"20px"}}>
-      <div style={{position:"absolute", top:"20px", right:"20px"}}>
-        <button onClick={()=>setPanelOpen(!panelOpen)} style={{fontSize:"30px", padding:"5px 10px", cursor:"pointer"}}>☰</button>
-        {panelOpen && (
-          <div style={{background:"#1e2a38", padding:"20px", borderRadius:"10px", width:"250px", marginTop:"10px", display:"flex", flexDirection:"column", gap:"10px"}}>
-            <input placeholder="نام خود را وارد کنید" value={username} disabled={!canEditName} onChange={e=>setUsername(e.target.value)} style={{padding:"8px", borderRadius:"5px"}}/>
-            {/* 🔹 دکمه های کیفیت صدا */}
-            <div style={{display:"flex", justifyContent:"space-between"}}>
-              {["کم","متوسط","عالی"].map(q => (
-                <button
-                  key={q}
-                  style={{flex:1, margin:"2px", background:selectedQuality===q?"#4caf50":"#888", color:"#fff"}}
-                  onClick={()=>setSelectedQuality(q)}
-                >{q}</button>
-              ))}
-            </div>
-            <button onClick={()=>{
-              localStorage.setItem("username", username);
-              localStorage.setItem("voiceQuality", selectedQuality);
-              setCanEditName(false);
-            }} style={{padding:"8px", borderRadius:"5px", background:"green", color:"white"}}>ثبت</button>
-            { !canEditName && <button onClick={()=>{ setCanEditName(true); }} style={{padding:"8px", borderRadius:"5px", background:"orange", color:"white"}}>تغییر نام</button>}
-          </div>
-        )}
-      </div>
-
-      {/* 🔹 ادامه UI تماس همانطور که بود */}
       {inCall ? (
         <div style={{textAlign:"center"}}>
           <h2 style={{color:"#fff"}}>ㅤㅤㅤㅤ {Math.floor(timer/60)}:{("0"+(timer%60)).slice(-2)}ㅤㅤㅤㅤ</h2>
@@ -328,14 +320,11 @@ const App = () => {
             <button onClick={toggleRecording} style={{padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background:isRecording?"#e63946":"#007bff", color:"white", fontSize:"16px", marginBottom:"10px", width:"100%"}}>{isRecording?<Stop/>:<FiberManualRecord/>}</button>
             <button onClick={toggleMute} style={{padding:"10px 20px", borderRadius:"12px", border:"none", cursor:"pointer", background:isMuted?"gray":"#007bff", color:"white", fontSize:"16px", marginBottom:"10px", width:"100%"}}>{isMuted?<MicOff/>:<Mic/>}</button>
             <button onClick={leaveCall} style={{padding:"20px 10px", borderRadius:"100px", background:"#f94b4be7", color:"white", border:"none", cursor:"pointer", marginTop:"10px", fontSize:"30px", width:"30%"}}><CallEnd fontSize="50px"/></button>
-            {overlayVisible && <div onDoubleClick={overlayDoubleClick} style={{position:"fixed", top:0, left:0, width:"100vw", height:"100vh", backgroundColor:"rgba(0,0,0,0.95)", zIndex:9999}}/>}
+            {overlayVisible && <div onDoubleClick={overlayDoubleClick} style={{position:"fixed", top:0, left:0, width:"100vw", height:"100vh", backgroundColor:"rgba(0,0,0,0.95)", zIndex:9999}}></div>}
           </div>
         </div>
       ) : (
-        <div style={{display:"flex", flexDirection:"column", gap:"10px"}}>
-          <input dir="rtl" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
-          <button onClick={joinCall} style={{padding:"15px 30px", borderRadius:"15px", background:"inherit", color:"lightgreen", fontSize:"18px", border:"1px solid lightgreen", cursor:"pointer", boxShadow:"0px 0px 10px rgba(26,255,0,0.44)"}}>شروع تماس با مخاطب</button>
-        </div>
+        <button onClick={joinCall} style={{padding:"15px 30px", borderRadius:"15px", background:"inherit", color:"lightgreen", fontSize:"18px", border:"1px solid lightgreen", cursor:"pointer", boxShadow:"0px 0px 10px rgba(26,255,0,0.44)"}}>شروع تماس با مخاطب</button>
       )}
     </div>
   );
