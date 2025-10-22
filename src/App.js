@@ -297,7 +297,7 @@ const App = () => {
   return (
     <div
       style={{
-        height: "94.5vh",
+        height: "94.6vh",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
@@ -338,7 +338,7 @@ const App = () => {
                     margin: "5px",
                     background: "rgba(216, 238, 144, 0.4)",
                     display: "block",
-                    padding: "10px 50%",
+                    padding: "10px 50px",
                     borderRadius: "5px",
                     position: "relative",
                     right: "20px",
