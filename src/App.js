@@ -295,9 +295,9 @@ const App = () => {
   if (!nameEntered) return (
     <div className="css-gradient-animation" style={{ height:"100vh", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center"}}>
       <h2 style={{color:"white", marginBottom:"50px"}}>ورود به تماس صوتی</h2>
-      <input dir="rtl" placeholder="نام خود را وارد کنید" value={username} onChange={e=>setUsername(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", marginBottom:"10px", backgroundColor:"inherit", width:"200px"}}/>
-      <input dir="rtl" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
-      <button onClick={()=>setNameEntered(true)} style={{marginTop:"15px", padding:"10px 20px", borderRadius:"7px", fontSize:"16px", fontWeight:"bold", cursor:"pointer", border:"none", width:"200px"}}>ادامه</button>
+      <input dir="rtl" className="nameInput" placeholder="نام خود را وارد کنید" value={username} onChange={e=>setUsername(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", marginBottom:"10px", backgroundColor:"inherit", width:"200px"}}/>
+      <input dir="rtl" className="passwordInput" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
+      <button className="btn-gradient" onClick={()=>setNameEntered(true)} style={{marginTop:"15px", padding:"10px 20px", borderRadius:"7px", fontSize:"16px", fontWeight:"bold", cursor:"pointer", border:"none", width:"200px"}}>ادامه</button>
     </div>
   );
 
@@ -311,7 +311,7 @@ const App = () => {
             <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
             <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
               {Object.keys(usersInCall).map(uid => (
-                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"1%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
+                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"105%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
               ))}
             </ul>
           </div>
