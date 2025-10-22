@@ -334,6 +334,7 @@ const App = () => {
                   key={uid}
                   style={{
                     listStyleType: "none",
+                    boxSizing: "border-box",
                     margin: "5px",
                     background: "rgba(216, 238, 144, 0.4)",
                     display: "block",
