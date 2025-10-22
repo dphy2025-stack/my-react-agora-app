@@ -1,9 +1,9 @@
-// ⚡ نسخه نهایی با رفع باگ ماندن نام در Firebase (بدون تغییر در منطق و UI)
+// ⚡ نسخه اصلاح‌شده با رفع باگ ماندن نام در Firebase
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue, remove, get } from "firebase/database";
+import { getDatabase, ref, set, onValue, remove } from "firebase/database";
 import notificationSound from "./assets/welcomeNotif.mp3";
 import {
   Mic,
@@ -56,11 +56,14 @@ const App = () => {
   const TOKEN =
     "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // ✅ وقتی تب بسته شود حذف از Firebase
+  // ✅ وقتی تب یا پنجره بسته شود، اگر کاربر در تماس بود حذف شود
   useEffect(() => {
     const handleUnload = () => {
-      if (userUID) remove(ref(db, `callUsers/${userUID}`));
+      if (userUID) {
+        remove(ref(db, `callUsers/${userUID}`));
+      }
     };
+
     window.addEventListener("beforeunload", handleUnload);
     window.addEventListener("unload", handleUnload);
     window.addEventListener("visibilitychange", () => {
@@ -68,29 +71,17 @@ const App = () => {
         remove(ref(db, `callUsers/${userUID}`));
       }
     });
+
     return () => {
       window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("unload", handleUnload);
     };
   }, [userUID]);
 
-  // ✅ این بخش باگ را رفع می‌کند (کاربران واقعی فقط)
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
-    const unsubscribe = onValue(usersRef, async (snapshot) => {
+    const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val() || {};
-
-      // گرفتن لیست کاربران واقعی از Agora
-      const remoteUsers = client.remoteUsers.map((u) => u.uid.toString());
-      const localUID = userUID ? userUID.toString() : null;
-
-      // حذف کاربرانی که در Firebase هستند اما در Agora نیستند
-      for (const uid in data) {
-        if (uid !== localUID && !remoteUsers.includes(uid)) {
-          await remove(ref(db, `callUsers/${uid}`));
-        }
-      }
-
       const prevUsers = Object.keys(usersInCall);
       const newUsers = Object.keys(data).filter(
         (uid) => !prevUsers.includes(uid)
@@ -100,24 +91,23 @@ const App = () => {
         audio.volume = 0.3;
         audio.play();
       }
-
       setUsersInCall(data);
       if (Object.keys(data).length > 1) setTimerActive(true);
       else setTimerActive(false);
     });
     return () => unsubscribe();
-  }, [usersInCall, nameEntered, client, userUID]);
+  }, [usersInCall, nameEntered]);
 
-  // تایمر
   useEffect(() => {
     let interval = null;
-    if (timerActive)
+    if (timerActive) {
       interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
-    else setTimer(0);
+    } else {
+      setTimer(0);
+    }
     return () => clearInterval(interval);
   }, [timerActive]);
 
-  // بررسی کیفیت اتصال
   useEffect(() => {
     const interval = setInterval(async () => {
       if (inCall) {
@@ -137,10 +127,11 @@ const App = () => {
   }, [client, inCall]);
 
   const createVoiceTrack = async (enableVoice, nameLabel) => {
-    if (!rawStreamRef.current)
+    if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
+    }
 
     await Tone.start();
     const audioCtx = Tone.context;
@@ -179,8 +170,14 @@ const App = () => {
   };
 
   const joinCall = async () => {
-    if (!username.trim()) return alert("لطفاً نام خود را وارد کنید!");
-    if (password !== "12213412") return alert("پسورد اشتباه است!");
+    if (!username.trim()) {
+      alert("لطفاً نام خود را وارد کنید!");
+      return;
+    }
+    if (password !== "12213412") {
+      alert("پسورد اشتباه است!");
+      return;
+    }
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
@@ -188,6 +185,7 @@ const App = () => {
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
+
     await set(ref(db, `callUsers/${UID}`), username);
 
     client.on("user-published", async (user, mediaType) => {
