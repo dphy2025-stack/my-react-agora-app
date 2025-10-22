@@ -1,22 +1,22 @@
+@font-face {
+    font-family: "vazirmatn";
+    src: url("./assets/Vazirmatn-Regular.ttf");
+}
+
 .btn-gradient{
-    background: #f0d041;
-    background: linear-gradient(90deg, rgba(240, 208, 65, 1) 0%, rgba(25, 191, 177, 1) 100%);
+    background: #2f536f;
     transition: all 0.5s;
     color: white;
+    font-family: "vazirmatn";
 }
 
 .btn-gradient:hover{
-    transform: scale(1.1);
+    transform: scale(1.05);
     color: black;
 }
 
 .css-gradient-animation {
-    background: linear-gradient(92deg, #7ae38b, #bfce61);
-    background-size: 400% 400%;
-
-    -webkit-animation: cssanimationgradient 9s ease infinite;
-    -moz-animation: cssanimationgradient 9s ease infinite;
-    animation: cssanimationgradient 9s ease infinite;
+    background: #163044;
 }
 
 @-webkit-keyframes cssanimationgradient {
@@ -36,17 +36,34 @@
 }
 
 body{
-    font-family: sans-serif;
+    font-family: "vazirmatn";
+}
+
+.nameInput{
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.689);
+    border: none;
+    font-family: "vazirmatn";
+}
+
+.passwordInput{
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.689);
+    border: none;
+    font-family: "vazirmatn";
 }
 
 .nameInput:focus{
     outline: none;
     transition: all 0.5s;
-    transform: scale(1.06);
+    transform: scale(1.03);
 }
 
 .passwordInput:focus{
     outline: none;
     transition: all 0.5s;
-    transform: scale(1.06);
+    transform: scale(1.03);
+}
+
+::placeholder{
+    color: white;
+    font-family: "vazirmatn";
 }

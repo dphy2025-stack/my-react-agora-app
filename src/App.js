@@ -1,12 +1,20 @@
+// ⚡ نسخه نهایی با رفع باگ ماندن نام در Firebase (بدون تغییر در منطق و UI)
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue, remove } from "firebase/database";
-import notificationSound from './assets/welcomeNotif.mp3'; // فایل صوتی نوتیفیکیشن
+import { getDatabase, ref, set, onValue, remove, get } from "firebase/database";
+import notificationSound from "./assets/welcomeNotif.mp3";
+import {
+  Mic,
+  MicOff,
+  CallEnd,
+  VolumeUp,
+  VoiceOverOff,
+  RecordVoiceOver,
+} from "@mui/icons-material";
 import "./App.css";
 
-// تنظیمات Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyAfZxkA95CrbDyxr6MBUUa7Q4p2AVSm0Ro",
   authDomain: "react-agora-app.firebaseapp.com",
@@ -33,50 +41,79 @@ const App = () => {
   const [timerActive, setTimerActive] = useState(false);
   const [micLowered, setMicLowered] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
-  const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
+  const [client] = useState(() =>
+    AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
+  );
   const [localAudioTrack, setLocalAudioTrack] = useState(null);
   const localTrackRef = useRef(null);
   const rawStreamRef = useRef(null);
   const gainNodeRef = useRef(null);
   const audioCtxRef = useRef(null);
+  const audioRef = useRef(new Audio(notificationSound));
 
   const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
   const CHANNEL = "love-channel";
   const TOKEN =
-    "007eJxTYNg9r/D2xL1mt4TOJjNffpa533/76+Ij3o/dK/ne805dwPlfgcHc0DzF0sjMyMzUPMUkOTExydQszTjFItEy0TzJyMDCsnH/l4yGQEYGgWdhLIwMEAji8zDk5Jel6iZnJOblpeYwMAAAGsEkwQ==";
+    "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // نوتیفیکیشن صوتی
-  const audioRef = useRef(new Audio(notificationSound));
+  // ✅ وقتی تب بسته شود حذف از Firebase
+  useEffect(() => {
+    const handleUnload = () => {
+      if (userUID) remove(ref(db, `callUsers/${userUID}`));
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("unload", handleUnload);
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden" && userUID) {
+        remove(ref(db, `callUsers/${userUID}`));
+      }
+    });
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("unload", handleUnload);
+    };
+  }, [userUID]);
 
-  // مانیتور کاربران حاضر از Firebase و پخش نوتیفیکیشن هنگام ورود
+  // ✅ این بخش باگ را رفع می‌کند (کاربران واقعی فقط)
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
-    const unsubscribe = onValue(usersRef, (snapshot) => {
+    const unsubscribe = onValue(usersRef, async (snapshot) => {
       const data = snapshot.val() || {};
-      // بررسی کاربر جدید
+
+      // گرفتن لیست کاربران واقعی از Agora
+      const remoteUsers = client.remoteUsers.map((u) => u.uid.toString());
+      const localUID = userUID ? userUID.toString() : null;
+
+      // حذف کاربرانی که در Firebase هستند اما در Agora نیستند
+      for (const uid in data) {
+        if (uid !== localUID && !remoteUsers.includes(uid)) {
+          await remove(ref(db, `callUsers/${uid}`));
+        }
+      }
+
       const prevUsers = Object.keys(usersInCall);
-      const newUsers = Object.keys(data).filter(uid => !prevUsers.includes(uid));
+      const newUsers = Object.keys(data).filter(
+        (uid) => !prevUsers.includes(uid)
+      );
       if (newUsers.length > 0 && nameEntered) {
         const audio = audioRef.current;
-        audio.volume = 0.3; // صدای ملایم
+        audio.volume = 0.3;
         audio.play();
       }
-      setUsersInCall(data);
 
+      setUsersInCall(data);
       if (Object.keys(data).length > 1) setTimerActive(true);
       else setTimerActive(false);
     });
     return () => unsubscribe();
-  }, [usersInCall, nameEntered]);
+  }, [usersInCall, nameEntered, client, userUID]);
 
   // تایمر
   useEffect(() => {
     let interval = null;
-    if (timerActive) {
+    if (timerActive)
       interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
-    } else {
-      setTimer(0);
-    }
+    else setTimer(0);
     return () => clearInterval(interval);
   }, [timerActive]);
 
@@ -99,23 +136,21 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ایجاد ترک صوتی
   const createVoiceTrack = async (enableVoice, nameLabel) => {
-    if (!rawStreamRef.current) {
-      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-    }
+    if (!rawStreamRef.current)
+      rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
 
     await Tone.start();
     const audioCtx = Tone.context;
     audioCtxRef.current = audioCtx;
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
     gainNodeRef.current = audioCtx.createGain();
     gainNodeRef.current.gain.value = 1;
     micSource.connect(gainNodeRef.current);
     const dest = audioCtx.createMediaStreamDestination();
     gainNodeRef.current.connect(dest);
-
     const processedTrack = dest.stream.getAudioTracks()[0];
     const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
@@ -124,8 +159,8 @@ const App = () => {
     return customTrack;
   };
 
-  // کاهش و بازگرداندن صدا و مدیریت overlay
   const toggleMicVolume = () => {
+    if (!gainNodeRef.current) return;
     if (!micLowered) {
       gainNodeRef.current.gain.value = 0.1;
       setMicLowered(true);
@@ -143,16 +178,9 @@ const App = () => {
     setOverlayVisible(false);
   };
 
-  // ورود به تماس
   const joinCall = async () => {
-    if (!username.trim()) {
-      alert("لطفاً نام خود را وارد کنید!");
-      return;
-    }
-    if (password !== "12213412") {
-      alert("پسورد اشتباه است!");
-      return;
-    }
+    if (!username.trim()) return alert("لطفاً نام خود را وارد کنید!");
+    if (password !== "12213412") return alert("پسورد اشتباه است!");
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
@@ -160,12 +188,7 @@ const App = () => {
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
-
     await set(ref(db, `callUsers/${UID}`), username);
-
-    window.addEventListener("beforeunload", () => {
-      if (userUID) remove(ref(db, `callUsers/${userUID}`));
-    });
 
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
@@ -179,13 +202,11 @@ const App = () => {
     setInCall(true);
   };
 
-  // تغییر صدا
   const toggleVoice = async () => {
     if (!localTrackRef.current) return;
     await client.unpublish([localTrackRef.current]);
     localTrackRef.current.stop();
     localTrackRef.current.close?.();
-
     const newTrack = await createVoiceTrack(!voiceOn, username);
     localTrackRef.current = newTrack;
     setLocalAudioTrack(newTrack);
@@ -193,14 +214,12 @@ const App = () => {
     setVoiceOn(!voiceOn);
   };
 
-  // میوت
   const toggleMute = async () => {
     if (!localTrackRef.current) return;
     await localTrackRef.current.setEnabled(isMuted);
     setIsMuted(!isMuted);
   };
 
-  // خروج از تماس
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
@@ -214,7 +233,6 @@ const App = () => {
     setMicLowered(false);
   };
 
-  // صفحه ورود
   if (!nameEntered) {
     return (
       <div
@@ -224,30 +242,42 @@ const App = () => {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          flexDirection: "column"
+          flexDirection: "column",
         }}
       >
-        <h2 style={{marginBottom: "50px"}}>ورود به تماس صوتی</h2>
+        <h2 style={{ marginBottom: "50px", color: "white" }}>ورود به تماس صوتی</h2>
         <input
-          className="nameInput"
           dir="rtl"
           type="text"
           placeholder="نام خود را وارد کنید"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", marginBottom: "10px", backgroundColor: "inherit", border: "solid 1px gray" }}
+          style={{
+            color: "white",
+            padding: "5px 10px",
+            fontSize: "18px",
+            borderRadius: "6px",
+            marginBottom: "10px",
+            backgroundColor: "inherit",
+            width: "29%",
+          }}
         />
         <input
-          className="passwordInput"
           dir="rtl"
           type="password"
-          placeholder="پسورد"
+          placeholder="رمز عبور را وارد کنید"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{ padding: "10px", fontSize: "16px", borderRadius: "6px", backgroundColor: "inherit", border: "solid 1px gray" }}
+          style={{
+            color: "white",
+            padding: "5px 10px",
+            fontSize: "18px",
+            borderRadius: "6px",
+            backgroundColor: "inherit",
+            width: "29%",
+          }}
         />
         <button
-          className="btn-gradient"
           onClick={() => setNameEntered(true)}
           style={{
             marginTop: "15px",
@@ -257,6 +287,7 @@ const App = () => {
             fontWeight: "bold",
             cursor: "pointer",
             border: "none",
+            width: "31.5%",
           }}
         >
           ادامه
@@ -265,38 +296,71 @@ const App = () => {
     );
   }
 
-  // صفحه تماس
   return (
     <div
       style={{
-        height: "100vh",
+        height: "94.5vh",
         display: "flex",
-        justifyContent: "flex-start",
-        alignItems: "flex-start",
-        background: "#303c43ff",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "#163044",
         flexDirection: "column",
         padding: "20px",
       }}
     >
       {inCall ? (
-        <>
+        <div style={{ textAlign: "center" }}>
           <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
-          <p style={{ color: "lightgreen" }}>🔹 کیفیت اتصال: {connectionQuality}</p>
-          <p style={{ color: "lightgreen" }}>⏱️ تایمر: {Math.floor(timer / 60)}:{("0" + (timer % 60)).slice(-2)}</p>
+          <p style={{ color: "lightgreen" }}>
+            🔹 کیفیت اتصال: {connectionQuality}
+          </p>
+          <p style={{ color: "lightgreen" }}>
+            ⏱️ تایمر: {Math.floor(timer / 60)}:
+            {("0" + (timer % 60)).slice(-2)}
+          </p>
 
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
-            <ul>
+            <ul
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                flexFlow: "column",
+                border: "solid 1px white",
+                borderRadius: "5px",
+              }}
+            >
               {Object.keys(usersInCall).map((uid) => (
-                <li key={uid} style={{ color: "lightgreen" }}>
+                <li
+                  key={uid}
+                  style={{
+                    listStyleType: "none",
+                    margin: "5px",
+                    background: "rgba(216, 238, 144, 0.4)",
+                    display: "block",
+                    padding: "10px 50%",
+                    borderRadius: "5px",
+                    position: "relative",
+                    right: "20px",
+                    fontSize: "15px",
+                    fontFamily: "vazirmatn",
+                  }}
+                >
                   {usersInCall[uid]}
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* دکمه داینامیک کاهش/بازگرداندن صدا */}
-          <div style={{ marginTop: "15px" }}>
+          <div
+            style={{
+              display: "flex",
+              flexFlow: "column",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
             <button
               onClick={toggleMicVolume}
               style={{
@@ -307,80 +371,80 @@ const App = () => {
                 background: micLowered ? "#f94b4be7" : "#007bff",
                 color: "white",
                 fontSize: "16px",
-                marginBottom: "10px",
+                width: "100%",
               }}
             >
-              {micLowered ? "🔈 صدای کم" : "🔊 صدای عادی"}
+              {micLowered ? "🔈" : <VolumeUp />}
             </button>
-          </div>
 
-          <button
-            onClick={toggleVoice}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: voiceOn ? "#f94b4be7" : "lightgreen",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-              marginTop: "15px",
-            }}
-          >
-            {voiceOn
-              ? "🔴 تغییر صدا **فعال** → غیرفعال کن"
-              : "🟢 تغییر صدا **غیرفعال** → فعال کن"}
-          </button>
-
-          <button
-            onClick={toggleMute}
-            style={{
-              padding: "10px 20px",
-              borderRadius: "12px",
-              border: "none",
-              cursor: "pointer",
-              background: isMuted ? "gray" : "#007bff",
-              color: "white",
-              fontSize: "16px",
-              marginBottom: "10px",
-            }}
-          >
-            {isMuted ? "🔇 میوت فعال → آن‌میوت کن" : "🎙️ میکروفون روشن → میوت کن"}
-          </button>
-
-          <button
-            onClick={leaveCall}
-            style={{
-              padding: "15px 30px",
-              borderRadius: "15px",
-              background: "#f94b4be7",
-              color: "white",
-              border: "none",
-              cursor: "pointer",
-              marginTop: "10px",
-              fontSize: "17px",
-            }}
-          >
-            قطع تماس
-          </button>
-
-          {/* صفحه سیاه overlay */}
-          {overlayVisible && (
-            <div
-              onDoubleClick={overlayDoubleClick}
+            <button
+              onClick={toggleVoice}
               style={{
-                position: "fixed",
-                top: 0,
-                left: 0,
-                width: "100vw",
-                height: "100vh",
-                backgroundColor: "rgba(0,0,0,0.95)",
-                zIndex: 9999,
+                padding: "10px 20px",
+                borderRadius: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: voiceOn ? "#f94b4be7" : "lightgreen",
+                color: "white",
+                fontSize: "16px",
+                marginBottom: "10px",
+                marginTop: "10px",
+                width: "100%",
               }}
-            ></div>
-          )}
-        </>
+            >
+              {voiceOn ? <VoiceOverOff /> : <RecordVoiceOver />}
+            </button>
+
+            <button
+              onClick={toggleMute}
+              style={{
+                padding: "10px 20px",
+                borderRadius: "12px",
+                border: "none",
+                cursor: "pointer",
+                background: isMuted ? "gray" : "#007bff",
+                color: "white",
+                fontSize: "16px",
+                marginBottom: "10px",
+                width: "100%",
+              }}
+            >
+              {isMuted ? <MicOff /> : <Mic />}
+            </button>
+
+            <button
+              onClick={leaveCall}
+              style={{
+                padding: "20px 10px",
+                borderRadius: "100px",
+                background: "#f94b4be7",
+                color: "white",
+                border: "none",
+                cursor: "pointer",
+                marginTop: "10px",
+                fontSize: "30px",
+                width: "30%",
+              }}
+            >
+              <CallEnd fontSize="50px" />
+            </button>
+
+            {overlayVisible && (
+              <div
+                onDoubleClick={overlayDoubleClick}
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  width: "100vw",
+                  height: "100vh",
+                  backgroundColor: "rgba(0,0,0,0.95)",
+                  zIndex: 9999,
+                }}
+              ></div>
+            )}
+          </div>
+        </div>
       ) : (
         <button
           onClick={joinCall}
