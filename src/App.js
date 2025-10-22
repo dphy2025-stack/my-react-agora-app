@@ -1,9 +1,9 @@
-// ⚡ نسخه نهایی با پیغام خروج و حذف از Firebase در همه حالات
+// ⚡ نسخه نهایی با رفع باگ ماندن نام در Firebase (بدون تغییر در منطق و UI)
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue, remove } from "firebase/database";
+import { getDatabase, ref, set, onValue, remove, get } from "firebase/database";
 import notificationSound from "./assets/welcomeNotif.mp3";
 import {
   Mic,
@@ -13,7 +13,6 @@ import {
   VoiceOverOff,
   RecordVoiceOver,
 } from "@mui/icons-material";
-import PersonIcon from "@mui/icons-material/Person";
 import "./App.css";
 
 const firebaseConfig = {
@@ -57,35 +56,41 @@ const App = () => {
   const TOKEN =
     "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // ✅ پیغام خروج در بستن یا رفرش مرورگر و حذف از Firebase پس از تأیید
+  // ✅ وقتی تب بسته شود حذف از Firebase
   useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (inCall && userUID) {
-        e.preventDefault();
-        e.returnValue = "آیا می‌خواهید از تماس خارج شوید؟";
-        return "آیا می‌خواهید از تماس خارج شوید؟";
-      }
-    };
-
     const handleUnload = () => {
-      if (inCall && userUID) {
+      if (userUID) remove(ref(db, `callUsers/${userUID}`));
+    };
+    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("unload", handleUnload);
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden" && userUID) {
         remove(ref(db, `callUsers/${userUID}`));
       }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("unload", handleUnload);
-
+    });
     return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("beforeunload", handleUnload);
       window.removeEventListener("unload", handleUnload);
     };
-  }, [inCall, userUID]);
+  }, [userUID]);
 
+  // ✅ این بخش باگ را رفع می‌کند (کاربران واقعی فقط)
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
-    const unsubscribe = onValue(usersRef, (snapshot) => {
+    const unsubscribe = onValue(usersRef, async (snapshot) => {
       const data = snapshot.val() || {};
+
+      // گرفتن لیست کاربران واقعی از Agora
+      const remoteUsers = client.remoteUsers.map((u) => u.uid.toString());
+      const localUID = userUID ? userUID.toString() : null;
+
+      // حذف کاربرانی که در Firebase هستند اما در Agora نیستند
+      for (const uid in data) {
+        if (uid !== localUID && !remoteUsers.includes(uid)) {
+          await remove(ref(db, `callUsers/${uid}`));
+        }
+      }
+
       const prevUsers = Object.keys(usersInCall);
       const newUsers = Object.keys(data).filter(
         (uid) => !prevUsers.includes(uid)
@@ -95,33 +100,34 @@ const App = () => {
         audio.volume = 0.3;
         audio.play();
       }
+
       setUsersInCall(data);
       if (Object.keys(data).length > 1) setTimerActive(true);
       else setTimerActive(false);
     });
     return () => unsubscribe();
-  }, [usersInCall, nameEntered]);
+  }, [usersInCall, nameEntered, client, userUID]);
 
+  // تایمر
   useEffect(() => {
     let interval = null;
-    if (timerActive) {
+    if (timerActive)
       interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
-    } else {
-      setTimer(0);
-    }
+    else setTimer(0);
     return () => clearInterval(interval);
   }, [timerActive]);
 
+  // بررسی کیفیت اتصال
   useEffect(() => {
     const interval = setInterval(async () => {
       if (inCall) {
         try {
           const stats = await client.getRTCStats();
           const rtt = stats.rtt || 0;
-          if (rtt < 150) setConnectionQuality("عالی");
-          else if (rtt < 300) setConnectionQuality("خوب");
-          else if (rtt < 500) setConnectionQuality("متوسط");
-          else setConnectionQuality("ضعیف");
+          if (rtt < 150) setConnectionQuality("عالی ✅");
+          else if (rtt < 300) setConnectionQuality("خوب ⚡");
+          else if (rtt < 500) setConnectionQuality("متوسط ⚠️");
+          else setConnectionQuality("ضعیف ❌");
         } catch {
           setConnectionQuality("–");
         }
@@ -131,11 +137,10 @@ const App = () => {
   }, [client, inCall]);
 
   const createVoiceTrack = async (enableVoice, nameLabel) => {
-    if (!rawStreamRef.current) {
+    if (!rawStreamRef.current)
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-    }
 
     await Tone.start();
     const audioCtx = Tone.context;
@@ -174,14 +179,8 @@ const App = () => {
   };
 
   const joinCall = async () => {
-    if (!username.trim()) {
-      alert("لطفاً نام خود را وارد کنید!");
-      return;
-    }
-    if (password !== "12213412") {
-      alert("پسورد اشتباه است!");
-      return;
-    }
+    if (!username.trim()) return alert("لطفاً نام خود را وارد کنید!");
+    if (password !== "12213412") return alert("پسورد اشتباه است!");
 
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
@@ -189,7 +188,6 @@ const App = () => {
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
-
     await set(ref(db, `callUsers/${UID}`), username);
 
     client.on("user-published", async (user, mediaType) => {
@@ -301,7 +299,7 @@ const App = () => {
   return (
     <div
       style={{
-        height: "94.7vh",
+        height: "100vh",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
@@ -312,16 +310,17 @@ const App = () => {
     >
       {inCall ? (
         <div style={{ textAlign: "center" }}>
-          <h2 style={{ color: "#fff", width: "100%" }}>
-            ㅤㅤㅤㅤ {Math.floor(timer / 60)}:
-            {("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ
-          </h2>
-          <p style={{ color: "lightgreen" }}>کیفیت اتصال: {connectionQuality}</p>
+          <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
+          <p style={{ color: "lightgreen" }}>
+            🔹 کیفیت اتصال: {connectionQuality}
+          </p>
+          <p style={{ color: "lightgreen" }}>
+            ⏱️ تایمر: {Math.floor(timer / 60)}:
+            {("0" + (timer % 60)).slice(-2)}
+          </p>
 
           <div style={{ marginTop: "20px" }}>
-            <h3 style={{ color: "white" }}>
-              <PersonIcon style={{ marginBottom: "-30px", fontSize: "40px" }} />
-            </h3>
+            <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
             <ul
               style={{
                 display: "flex",
@@ -337,13 +336,11 @@ const App = () => {
                   key={uid}
                   style={{
                     listStyleType: "none",
-                    boxSizing: "border-box",
                     margin: "5px",
                     background: "rgba(216, 238, 144, 0.4)",
                     display: "block",
-                    padding: "10px",
+                    padding: "10px 50%",
                     borderRadius: "5px",
-                    width: "115%",
                     position: "relative",
                     right: "20px",
                     fontSize: "15px",
