@@ -297,7 +297,7 @@ const App = () => {
   return (
     <div
       style={{
-        height: "94.6vh",
+        height: "94.7vh",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
@@ -308,13 +308,9 @@ const App = () => {
     >
       {inCall ? (
         <div style={{ textAlign: "center" }}>
-          <h2 style={{ color: "#fff" }}>📞 در حال تماس با مخاطب</h2>
+          <h2 style={{ color: "#fff", width: "100%",}}> ㅤㅤㅤㅤ {Math.floor(timer / 60)}:{("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ</h2>
           <p style={{ color: "lightgreen" }}>
             🔹 کیفیت اتصال: {connectionQuality}
-          </p>
-          <p style={{ color: "lightgreen" }}>
-            ⏱️ تایمر: {Math.floor(timer / 60)}:
-            {("0" + (timer % 60)).slice(-2)}
           </p>
 
           <div style={{ marginTop: "20px" }}>
@@ -338,8 +334,9 @@ const App = () => {
                     margin: "5px",
                     background: "rgba(216, 238, 144, 0.4)",
                     display: "block",
-                    padding: "10px 50px",
+                    padding: "10px",
                     borderRadius: "5px",
+                    width: "115%",
                     position: "relative",
                     right: "20px",
                     fontSize: "15px",
