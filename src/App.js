@@ -1,7 +1,6 @@
-// ⚡ نسخه نهایی با پیغام خروج + حذف از Firebase + پاک‌سازی خودکار هر ۳ ساعت
+// ⚡ نسخه نهایی با قابلیت ضبط صدا (جایگزین دکمه تغییر صدا)
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
-import * as Tone from "tone";
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, remove } from "firebase/database";
 import notificationSound from "./assets/welcomeNotif.mp3";
@@ -10,8 +9,8 @@ import {
   MicOff,
   CallEnd,
   VolumeUp,
-  VoiceOverOff,
-  RecordVoiceOver,
+  FiberManualRecord,
+  Stop,
 } from "@mui/icons-material";
 import PersonIcon from "@mui/icons-material/Person";
 import "./App.css";
@@ -34,7 +33,6 @@ const App = () => {
   const [nameEntered, setNameEntered] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState("–");
-  const [voiceOn, setVoiceOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [usersInCall, setUsersInCall] = useState({});
   const [userUID, setUserUID] = useState(null);
@@ -42,6 +40,9 @@ const App = () => {
   const [timerActive, setTimerActive] = useState(false);
   const [micLowered, setMicLowered] = useState(false);
   const [overlayVisible, setOverlayVisible] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [recordedChunks, setRecordedChunks] = useState([]);
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -57,7 +58,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // ✅ پیغام خروج هنگام بستن یا رفرش مرورگر
+  // خروج یا رفرش
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (inCall && userUID) {
@@ -66,23 +67,18 @@ const App = () => {
         return "آیا می‌خواهید از تماس خارج شوید؟";
       }
     };
-
     const handleUnload = () => {
-      if (inCall && userUID) {
-        remove(ref(db, `callUsers/${userUID}`));
-      }
+      if (inCall && userUID) remove(ref(db, `callUsers/${userUID}`));
     };
-
     window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("unload", handleUnload);
-
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("unload", handleUnload);
     };
   }, [inCall, userUID]);
 
-  // ✅ مدیریت کاربران حاضر
+  // کاربران حاضر
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -103,18 +99,16 @@ const App = () => {
     return () => unsubscribe();
   }, [usersInCall, nameEntered]);
 
-  // ✅ تایمر تماس
+  // تایمر
   useEffect(() => {
     let interval = null;
-    if (timerActive) {
+    if (timerActive)
       interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
-    } else {
-      setTimer(0);
-    }
+    else setTimer(0);
     return () => clearInterval(interval);
   }, [timerActive]);
 
-  // ✅ کیفیت اتصال اینترنت
+  // کیفیت اتصال
   useEffect(() => {
     const interval = setInterval(async () => {
       if (inCall) {
@@ -133,27 +127,25 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
-  // ✅ پاک‌سازی خودکار کاربران از Firebase هر ۳ ساعت
+  // پاکسازی کاربران هر ۳ ساعت
   useEffect(() => {
     const interval = setInterval(() => {
       remove(ref(db, "callUsers"))
-        .then(() => console.log("✅ لیست کاربران هر ۳ ساعت پاک‌سازی شد"))
-        .catch((err) => console.error("❌ خطا در پاکسازی خودکار:", err));
-    }, 10800000); // 3 ساعت = 10,800,000ms
-
+        .then(() => console.log("✅ لیست کاربران پاک شد"))
+        .catch((err) => console.error("❌ خطا در پاکسازی:", err));
+    }, 10800000);
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ ساخت ترک صدا
+  // ساخت ترک صدا
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
     }
-
-    await Tone.start();
-    const audioCtx = Tone.context;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = audioCtxRef.current || new AudioContextClass();
     audioCtxRef.current = audioCtx;
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
     gainNodeRef.current = audioCtx.createGain();
@@ -189,45 +181,21 @@ const App = () => {
   };
 
   const joinCall = async () => {
-    if (!username.trim()) {
-      alert("لطفاً نام خود را وارد کنید!");
-      return;
-    }
-    if (password !== "12213412") {
-      alert("پسورد اشتباه است!");
-      return;
-    }
-
+    if (!username.trim()) return alert("نام خود را وارد کنید!");
+    if (password !== "12213412") return alert("پسورد اشتباه است!");
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
-    const track = await createVoiceTrack(voiceOn, username);
+    const track = await createVoiceTrack(false, username);
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
     await set(ref(db, `callUsers/${UID}`), username);
-
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
       if (mediaType === "audio") user.audioTrack.play();
     });
-
-    client.on("user-left", (user) => {
-      remove(ref(db, `callUsers/${user.uid}`));
-    });
-
+    client.on("user-left", (user) => remove(ref(db, `callUsers/${user.uid}`)));
     setInCall(true);
-  };
-
-  const toggleVoice = async () => {
-    if (!localTrackRef.current) return;
-    await client.unpublish([localTrackRef.current]);
-    localTrackRef.current.stop();
-    localTrackRef.current.close?.();
-    const newTrack = await createVoiceTrack(!voiceOn, username);
-    localTrackRef.current = newTrack;
-    setLocalAudioTrack(newTrack);
-    await client.publish([newTrack]);
-    setVoiceOn(!voiceOn);
   };
 
   const toggleMute = async () => {
@@ -236,11 +204,42 @@ const App = () => {
     setIsMuted(!isMuted);
   };
 
+  // ✅ ضبط صدا
+  const toggleRecording = () => {
+    if (isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+    } else {
+      const stream = rawStreamRef.current;
+      if (!stream) {
+        alert("ابتدا باید در تماس باشید!");
+        return;
+      }
+      const recorder = new MediaRecorder(stream);
+      const chunks = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/mp3" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `record_${new Date()
+          .toISOString()
+          .replace(/[:.]/g, "-")}.mp3`;
+        a.click();
+      };
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+    }
+  };
+
   const leaveCall = async () => {
     if (localAudioTrack) {
       localAudioTrack.stop();
       localAudioTrack.close();
     }
+    if (isRecording && mediaRecorder) mediaRecorder.stop();
     await client.leave();
     if (userUID) remove(ref(db, `callUsers/${userUID}`));
     setInCall(false);
@@ -249,7 +248,8 @@ const App = () => {
     setMicLowered(false);
   };
 
-  if (!nameEntered) {
+  // UI
+  if (!nameEntered)
     return (
       <div
         className="css-gradient-animation"
@@ -310,7 +310,6 @@ const App = () => {
         </button>
       </div>
     );
-  }
 
   return (
     <div
@@ -382,6 +381,7 @@ const App = () => {
               style={{
                 padding: "10px 20px",
                 borderRadius: "12px",
+                marginBottom: "10px",
                 border: "none",
                 cursor: "pointer",
                 background: micLowered ? "#f94b4be7" : "#007bff",
@@ -393,22 +393,22 @@ const App = () => {
               {micLowered ? "🔈" : <VolumeUp />}
             </button>
 
+            {/* 🎙 دکمه ضبط صدا */}
             <button
-              onClick={toggleVoice}
+              onClick={toggleRecording}
               style={{
                 padding: "10px 20px",
                 borderRadius: "12px",
                 border: "none",
                 cursor: "pointer",
-                background: voiceOn ? "#f94b4be7" : "lightgreen",
+                background: isRecording ? "#e63946" : "#007bff",
                 color: "white",
                 fontSize: "16px",
                 marginBottom: "10px",
-                marginTop: "10px",
                 width: "100%",
               }}
             >
-              {voiceOn ? <VoiceOverOff /> : <RecordVoiceOver />}
+              {isRecording ? <Stop /> : <FiberManualRecord />}
             </button>
 
             <button
