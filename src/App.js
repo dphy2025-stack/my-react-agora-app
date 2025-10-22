@@ -1,4 +1,4 @@
-// ⚡ نسخه اصلاح‌شده با رفع باگ ماندن نام در Firebase
+// ⚡ نسخه نهایی با پیغام خروج و حذف از Firebase در همه حالات
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
@@ -13,6 +13,7 @@ import {
   VoiceOverOff,
   RecordVoiceOver,
 } from "@mui/icons-material";
+import PersonIcon from "@mui/icons-material/Person";
 import "./App.css";
 
 const firebaseConfig = {
@@ -56,27 +57,30 @@ const App = () => {
   const TOKEN =
     "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // ✅ وقتی تب یا پنجره بسته شود، اگر کاربر در تماس بود حذف شود
+  // ✅ پیغام خروج در بستن یا رفرش مرورگر و حذف از Firebase پس از تأیید
   useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (inCall && userUID) {
+        e.preventDefault();
+        e.returnValue = "آیا می‌خواهید از تماس خارج شوید؟";
+        return "آیا می‌خواهید از تماس خارج شوید؟";
+      }
+    };
+
     const handleUnload = () => {
-      if (userUID) {
+      if (inCall && userUID) {
         remove(ref(db, `callUsers/${userUID}`));
       }
     };
 
-    window.addEventListener("beforeunload", handleUnload);
+    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("unload", handleUnload);
-    window.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && userUID) {
-        remove(ref(db, `callUsers/${userUID}`));
-      }
-    });
 
     return () => {
-      window.removeEventListener("beforeunload", handleUnload);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("unload", handleUnload);
     };
-  }, [userUID]);
+  }, [inCall, userUID]);
 
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
@@ -114,10 +118,10 @@ const App = () => {
         try {
           const stats = await client.getRTCStats();
           const rtt = stats.rtt || 0;
-          if (rtt < 150) setConnectionQuality("عالی ✅");
-          else if (rtt < 300) setConnectionQuality("خوب ⚡");
-          else if (rtt < 500) setConnectionQuality("متوسط ⚠️");
-          else setConnectionQuality("ضعیف ❌");
+          if (rtt < 150) setConnectionQuality("عالی");
+          else if (rtt < 300) setConnectionQuality("خوب");
+          else if (rtt < 500) setConnectionQuality("متوسط");
+          else setConnectionQuality("ضعیف");
         } catch {
           setConnectionQuality("–");
         }
@@ -308,13 +312,16 @@ const App = () => {
     >
       {inCall ? (
         <div style={{ textAlign: "center" }}>
-          <h2 style={{ color: "#fff", width: "100%",}}> ㅤㅤㅤㅤ {Math.floor(timer / 60)}:{("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ</h2>
-          <p style={{ color: "lightgreen" }}>
-            🔹 کیفیت اتصال: {connectionQuality}
-          </p>
+          <h2 style={{ color: "#fff", width: "100%" }}>
+            ㅤㅤㅤㅤ {Math.floor(timer / 60)}:
+            {("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ
+          </h2>
+          <p style={{ color: "lightgreen" }}>کیفیت اتصال: {connectionQuality}</p>
 
           <div style={{ marginTop: "20px" }}>
-            <h3 style={{ color: "white" }}>👥 کاربران حاضر:</h3>
+            <h3 style={{ color: "white" }}>
+              <PersonIcon style={{ marginBottom: "-30px", fontSize: "40px" }} />
+            </h3>
             <ul
               style={{
                 display: "flex",
