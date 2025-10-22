@@ -1,4 +1,4 @@
-// ⚡ نسخه نهایی با قابلیت ضبط صدا (جایگزین دکمه تغییر صدا)
+// ⚡ نسخه نهایی با تشخیص صدا (پررنگ/کم‌رنگ شدن کاربران هنگام صحبت)
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
@@ -43,6 +43,8 @@ const App = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedChunks, setRecordedChunks] = useState([]);
+  const [speakingUsers, setSpeakingUsers] = useState({}); // 👈 اضافه‌شده برای تشخیص صحبت
+
   const [client] = useState(() =>
     AgoraRTC.createClient({ mode: "rtc", codec: "vp8" })
   );
@@ -137,6 +139,28 @@ const App = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // 🎤 تشخیص صحبت کاربر محلی
+  useEffect(() => {
+    if (!rawStreamRef.current) return;
+    const audioCtx = audioCtxRef.current;
+    const analyser = audioCtx.createAnalyser();
+    const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
+    micSource.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const detect = () => {
+      analyser.getByteFrequencyData(dataArray);
+      const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const isSpeaking = volume > 20; // حساسیت صدا
+      setSpeakingUsers((prev) => ({
+        ...prev,
+        [userUID]: isSpeaking,
+      }));
+      requestAnimationFrame(detect);
+    };
+    detect();
+  }, [rawStreamRef.current]);
+
   // ساخت ترک صدا
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
@@ -192,7 +216,28 @@ const App = () => {
     await set(ref(db, `callUsers/${UID}`), username);
     client.on("user-published", async (user, mediaType) => {
       await client.subscribe(user, mediaType);
-      if (mediaType === "audio") user.audioTrack.play();
+      if (mediaType === "audio") {
+        user.audioTrack.play();
+
+        // 👇 تشخیص صحبت کاربران دیگر
+        const analyser = audioCtxRef.current.createAnalyser();
+        const src = audioCtxRef.current.createMediaStreamSource(
+          new MediaStream([user.audioTrack.getMediaStreamTrack()])
+        );
+        src.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const detectOther = () => {
+          analyser.getByteFrequencyData(dataArray);
+          const volume = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const isSpeaking = volume > 9;
+          setSpeakingUsers((prev) => ({
+            ...prev,
+            [user.uid]: isSpeaking,
+          }));
+          requestAnimationFrame(detectOther);
+        };
+        detectOther();
+      }
     });
     client.on("user-left", (user) => remove(ref(db, `callUsers/${user.uid}`)));
     setInCall(true);
@@ -248,7 +293,7 @@ const App = () => {
     setMicLowered(false);
   };
 
-  // UI
+  // UI (بدون تغییر)
   if (!nameEntered)
     return (
       <div
@@ -263,6 +308,7 @@ const App = () => {
       >
         <h2 style={{ marginBottom: "50px", color: "white" }}>ورود به تماس صوتی</h2>
         <input
+          className="nameInput"
           dir="rtl"
           type="text"
           placeholder="نام خود را وارد کنید"
@@ -275,10 +321,11 @@ const App = () => {
             borderRadius: "6px",
             marginBottom: "10px",
             backgroundColor: "inherit",
-            width: "29%",
+            width: "200px",
           }}
         />
         <input
+          className="passwordInput"
           dir="rtl"
           type="password"
           placeholder="رمز عبور را وارد کنید"
@@ -290,10 +337,11 @@ const App = () => {
             fontSize: "18px",
             borderRadius: "6px",
             backgroundColor: "inherit",
-            width: "29%",
+            width: "200px",
           }}
         />
         <button
+          className="btn-gradient"
           onClick={() => setNameEntered(true)}
           style={{
             marginTop: "15px",
@@ -303,7 +351,7 @@ const App = () => {
             fontWeight: "bold",
             cursor: "pointer",
             border: "none",
-            width: "31.5%",
+            width: "200px",
           }}
         >
           ادامه
@@ -351,7 +399,7 @@ const App = () => {
                     listStyleType: "none",
                     boxSizing: "border-box",
                     margin: "5px",
-                    background: "rgba(216, 238, 144, 0.4)",
+                    background: "rgba(216, 238, 144, 1)",
                     display: "block",
                     padding: "10px",
                     borderRadius: "5px",
@@ -360,6 +408,8 @@ const App = () => {
                     right: "20px",
                     fontSize: "15px",
                     fontFamily: "vazirmatn",
+                    opacity: speakingUsers[uid] ? 1 : 0.3, // 👈 پررنگ یا کم‌رنگ
+                    transition: "opacity 0.5s ease",
                   }}
                 >
                   {usersInCall[uid]}
