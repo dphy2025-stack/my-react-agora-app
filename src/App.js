@@ -1,4 +1,4 @@
-// ⚡ نسخه نهایی با پیغام خروج و حذف از Firebase در همه حالات
+// ⚡ نسخه نهایی با پیغام خروج + حذف از Firebase + پاک‌سازی خودکار هر ۳ ساعت
 import React, { useState, useEffect, useRef } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import * as Tone from "tone";
@@ -57,7 +57,7 @@ const App = () => {
   const TOKEN =
     "007eJxTYDjUahCgwMn3ah5v3JN9M+bw/t1gnns65XNeXP55B79wk3cKDOaG5imWRmZGZqbmKSbJiYlJpmZpxikWiZaJ5klGBhaWZ/Z8z2gIZGT42tzEzMgAgSA+D0NOflmqbnJGYl5eag4DAwBhvSOL";
 
-  // ✅ پیغام خروج در بستن یا رفرش مرورگر و حذف از Firebase پس از تأیید
+  // ✅ پیغام خروج هنگام بستن یا رفرش مرورگر
   useEffect(() => {
     const handleBeforeUnload = (e) => {
       if (inCall && userUID) {
@@ -82,6 +82,7 @@ const App = () => {
     };
   }, [inCall, userUID]);
 
+  // ✅ مدیریت کاربران حاضر
   useEffect(() => {
     const usersRef = ref(db, "callUsers/");
     const unsubscribe = onValue(usersRef, (snapshot) => {
@@ -102,6 +103,7 @@ const App = () => {
     return () => unsubscribe();
   }, [usersInCall, nameEntered]);
 
+  // ✅ تایمر تماس
   useEffect(() => {
     let interval = null;
     if (timerActive) {
@@ -112,6 +114,7 @@ const App = () => {
     return () => clearInterval(interval);
   }, [timerActive]);
 
+  // ✅ کیفیت اتصال اینترنت
   useEffect(() => {
     const interval = setInterval(async () => {
       if (inCall) {
@@ -130,6 +133,18 @@ const App = () => {
     return () => clearInterval(interval);
   }, [client, inCall]);
 
+  // ✅ پاک‌سازی خودکار کاربران از Firebase هر ۳ ساعت
+  useEffect(() => {
+    const interval = setInterval(() => {
+      remove(ref(db, "callUsers"))
+        .then(() => console.log("✅ لیست کاربران هر ۳ ساعت پاک‌سازی شد"))
+        .catch((err) => console.error("❌ خطا در پاکسازی خودکار:", err));
+    }, 10800000); // 3 ساعت = 10,800,000ms
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // ✅ ساخت ترک صدا
   const createVoiceTrack = async (enableVoice, nameLabel) => {
     if (!rawStreamRef.current) {
       rawStreamRef.current = await navigator.mediaDevices.getUserMedia({
@@ -189,7 +204,6 @@ const App = () => {
     localTrackRef.current = track;
     setLocalAudioTrack(track);
     await client.publish([track]);
-
     await set(ref(db, `callUsers/${UID}`), username);
 
     client.on("user-published", async (user, mediaType) => {
@@ -317,7 +331,6 @@ const App = () => {
             {("0" + (timer % 60)).slice(-2)}ㅤㅤㅤㅤ
           </h2>
           <p style={{ color: "lightgreen" }}>کیفیت اتصال: {connectionQuality}</p>
-
           <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: "white" }}>
               <PersonIcon style={{ marginBottom: "-30px", fontSize: "40px" }} />
