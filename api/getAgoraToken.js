@@ -11,8 +11,8 @@ module.exports = async (req, res) => {
     // optional uid param
     const uid = req.query.uid || (req.body && req.body.uid) || 0;
 
-    const APP_ID = process.env.AGORA_APP_ID;
-    const APP_CERT = process.env.AGORA_APP_CERT;
+    const APP_ID = process.env.REACT_APP_AGORA_APP_ID;
+    const APP_CERT = process.env.REACT_APP_AGORA_APP_CERT;
 
     if (!APP_ID || !APP_CERT) {
       return res.status(500).json({ error: "Agora APP_ID / APP_CERT not configured on server." });
