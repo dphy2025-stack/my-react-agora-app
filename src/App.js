@@ -1,3 +1,4 @@
+// src/App.js
 // ⚡ نسخه نهایی بهینه شده با Lazy Execution و تشخیص صدا + پخش Recording.mp3
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
@@ -16,7 +17,7 @@ import {
 import PersonIcon from "@mui/icons-material/Person";
 import "./App.css";
 
-// 🔹 تنظیمات Firebase
+// 🔹 تنظیمات Firebase (اگر از Realtime DB استفاده می‌کنی)
 const firebaseConfig = {
   apiKey: "AIzaSyAfZxkA95CrbDyxr6MBUUa7Q4p2AVSm0Ro",
   authDomain: "react-agora-app.firebaseapp.com",
@@ -28,10 +29,29 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// 🔹 اطلاعات Agora
 const APP_ID = "717d9262657d4caab56f3d8a9b2089";
 const CHANNEL = "love-channel";
+// keep original TOKEN as fallback (won't be used if serverless returns a token)
 const TOKEN =
   "007eJxTYBA7cCzyE19jSG3q37ft32eqzGLn7/l064eReXzlgs883UsUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCwsDZh+ZjQEMjK8Vf7IxMgAgSA+D0NOflmqbnJGYl5eag4DAwDDiSPF";
+
+// Helper: call Vercel serverless function to get token
+async function fetchTokenFromVercel(channelName) {
+  try {
+    const res = await fetch(`/api/getAgoraToken?channel=${encodeURIComponent(channelName)}`);
+    if (!res.ok) {
+      console.warn("getAgoraToken returned non-OK:", res.status);
+      return null;
+    }
+    const data = await res.json();
+    if (data && data.token) return data.token;
+    return null;
+  } catch (err) {
+    console.warn("Error fetching token from Vercel:", err);
+    return null;
+  }
+}
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
@@ -116,10 +136,32 @@ const App = () => {
       try {
         const stats = await client.getRTCStats();
         const rtt = stats.rtt || 0;
-        if (rtt < 150) setConnectionQuality("عالی");
-        else if (rtt < 300) setConnectionQuality("خوب");
-        else if (rtt < 500) setConnectionQuality("متوسط");
-        else setConnectionQuality("ضعیف");
+
+        // ====== اینجا می‌تونیم RTT رو حساس‌تر کنیم به سرعت دانلود/آپلود
+        // اما چون RTT فقط در stats موجوده، برای نگاشت بر اساس مگابیت/کیلوبایت از شما نیاز به telemetry بیشتره.
+        // در حال حاضر از RTT استفاده می‌کنیم و پیام‌های متنی را مطابق پیشنهادت نگاشت می‌کنیم.
+
+        let quality = "–";
+        // mapping based on your thresholds described earlier — but note: RTT != bandwidth.
+        // We'll combine RTT and navigator.connection.downlink (if available) to better guess.
+        let downlink = navigator.connection && navigator.connection.downlink ? navigator.connection.downlink : null; // Mbps
+        if (downlink !== null) {
+          // use downlink primarily if available
+          if (downlink >= 20) quality = "بهترین";
+          else if (downlink >= 5) quality = "عالی";
+          else if (downlink >= 2) quality = "خوب";
+          else if (downlink >= 1) quality = "متوسط";
+          else if (downlink >= 0.25) quality = "ضعیف";
+          else quality = "خیلی ضعیف";
+        } else {
+          // fallback to RTT categories
+          if (rtt < 150) quality = "عالی";
+          else if (rtt < 300) quality = "خوب";
+          else if (rtt < 500) quality = "متوسط";
+          else quality = "ضعیف";
+        }
+
+        setConnectionQuality(quality);
       } catch {
         setConnectionQuality("–");
       }
@@ -221,6 +263,23 @@ const App = () => {
   const joinCall = useCallback(async () => {
     if (!username.trim()) return alert("نام خود را وارد کنید!");
     if (password !== "12213412") return alert("پسورد اشتباه است!");
+
+    // ====== اضافه: گرفتن توکن از Vercel و پچ موقت client.join بدون حذف خط اصلی ======
+    try {
+      const dynamicToken = await fetchTokenFromVercel(CHANNEL);
+      const usedToken = dynamicToken || TOKEN;
+
+      // پچ موقت client.join تا از usedToken استفاده کنه
+      const originalJoin = client.join.bind(client);
+      client.join = async (appIdArg, channelArg, tokenArg, uidArg) => {
+        return await originalJoin(appIdArg, channelArg, usedToken, uidArg);
+      };
+    } catch (err) {
+      console.warn("خطا در دریافت توکن داینامیک از Vercel، از TOKEN ثابت استفاده می‌شود.", err);
+    }
+    // ====== پایان اضافه شده ======
+
+    // این خط عینِ کد توئه — بدون حذف یا تغییر — اما عملاً از token پچ‌شده استفاده می‌شود.
     const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
     const track = await createVoiceTrack(false, username);
@@ -295,9 +354,9 @@ const App = () => {
   if (!nameEntered) return (
     <div className="css-gradient-animation" style={{ height:"100vh", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center"}}>
       <h2 style={{color:"white", marginBottom:"50px"}}>ورود به تماس صوتی</h2>
-      <input dir="rtl" className="nameInput" placeholder="نام خود را وارد کنید" value={username} onChange={e=>setUsername(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", marginBottom:"10px", backgroundColor:"inherit", width:"200px"}}/>
-      <input dir="rtl" className="passwordInput" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
-      <button className="btn-gradient" onClick={()=>setNameEntered(true)} style={{marginTop:"15px", padding:"10px 20px", borderRadius:"7px", fontSize:"16px", fontWeight:"bold", cursor:"pointer", border:"none", width:"200px"}}>ادامه</button>
+      <input dir="rtl" placeholder="نام خود را وارد کنید" value={username} onChange={e=>setUsername(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", marginBottom:"10px", backgroundColor:"inherit", width:"200px"}}/>
+      <input dir="rtl" type="password" placeholder="رمز عبور را وارد کنید" value={password} onChange={e=>setPassword(e.target.value)} style={{color:"white", padding:"5px 10px", fontSize:"18px", borderRadius:"6px", backgroundColor:"inherit", width:"200px"}}/>
+      <button onClick={()=>setNameEntered(true)} style={{marginTop:"15px", padding:"10px 20px", borderRadius:"7px", fontSize:"16px", fontWeight:"bold", cursor:"pointer", border:"none", width:"200px"}}>ادامه</button>
     </div>
   );
 
@@ -311,7 +370,7 @@ const App = () => {
             <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
             <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
               {Object.keys(usersInCall).map(uid => (
-                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"105%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
+                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"1%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
               ))}
             </ul>
           </div>
