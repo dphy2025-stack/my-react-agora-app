@@ -137,16 +137,9 @@ const App = () => {
         const stats = await client.getRTCStats();
         const rtt = stats.rtt || 0;
 
-        // ====== اینجا می‌تونیم RTT رو حساس‌تر کنیم به سرعت دانلود/آپلود
-        // اما چون RTT فقط در stats موجوده، برای نگاشت بر اساس مگابیت/کیلوبایت از شما نیاز به telemetry بیشتره.
-        // در حال حاضر از RTT استفاده می‌کنیم و پیام‌های متنی را مطابق پیشنهادت نگاشت می‌کنیم.
-
         let quality = "–";
-        // mapping based on your thresholds described earlier — but note: RTT != bandwidth.
-        // We'll combine RTT and navigator.connection.downlink (if available) to better guess.
-        let downlink = navigator.connection && navigator.connection.downlink ? navigator.connection.downlink : null; // Mbps
+        let downlink = navigator.connection && navigator.connection.downlink ? navigator.connection.downlink : null;
         if (downlink !== null) {
-          // use downlink primarily if available
           if (downlink >= 20) quality = "بهترین";
           else if (downlink >= 5) quality = "عالی";
           else if (downlink >= 2) quality = "خوب";
@@ -154,7 +147,6 @@ const App = () => {
           else if (downlink >= 0.25) quality = "ضعیف";
           else quality = "خیلی ضعیف";
         } else {
-          // fallback to RTT categories
           if (rtt < 150) quality = "عالی";
           else if (rtt < 300) quality = "خوب";
           else if (rtt < 500) quality = "متوسط";
@@ -217,24 +209,18 @@ const App = () => {
     const audioCtx = audioCtxRef.current || new AudioContextClass();
     audioCtxRef.current = audioCtx;
 
-    // منبع صدا
     const micSource = audioCtx.createMediaStreamSource(rawStreamRef.current);
-
-    // گین برای کنترل صدا
     gainNodeRef.current = audioCtx.createGain();
     gainNodeRef.current.gain.value = 1;
     micSource.connect(gainNodeRef.current);
 
-    // فشرده سازی و کاهش بیت ریت برای اینترنت ضعیف
     const dest = audioCtx.createMediaStreamDestination();
     gainNodeRef.current.connect(dest);
 
     const processedTrack = dest.stream.getAudioTracks()[0];
-
-    // Agora: ایجاد ترک صوتی با بیت ریت پایین و latency کم
     const customTrack = await AgoraRTC.createCustomAudioTrack({
       mediaStreamTrack: processedTrack,
-      encoderConfig: "low_quality", // مناسب برای اینترنت ضعیف
+      encoderConfig: "low_quality",
       optimizationMode: "low_latency",
       enableAudioLevelIndicator: true
     });
@@ -264,26 +250,18 @@ const App = () => {
     if (!username.trim()) return alert("نام خود را وارد کنید!");
     if (password !== "12213412") return alert("پسورد اشتباه است!");
 
-    // ====== اضافه: گرفتن توکن از Vercel و پچ موقت client.join بدون حذف خط اصلی ======
-    try {
-      const dynamicToken = await fetchTokenFromVercel(CHANNEL);
-      const usedToken = dynamicToken || TOKEN;
+    // ====== اصلاح مشکل token ======
+    const dynamicToken = await fetchTokenFromVercel(CHANNEL);
+    const usedToken = dynamicToken || TOKEN;
+    const generatedUID = Math.floor(Math.random()*100000);
 
-      // پچ موقت client.join تا از usedToken استفاده کنه
-      const originalJoin = client.join.bind(client);
-      client.join = async (appIdArg, channelArg, tokenArg, uidArg) => {
-        return await originalJoin(appIdArg, channelArg, usedToken, uidArg);
-      };
-    } catch (err) {
-      console.warn("خطا در دریافت توکن داینامیک از Vercel، از TOKEN ثابت استفاده می‌شود.", err);
-    }
-    // ====== پایان اضافه شده ======
-
-    // این خط عینِ کد توئه — بدون حذف یا تغییر — اما عملاً از token پچ‌شده استفاده می‌شود.
-    const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
+    const UID = await client.join(APP_ID, CHANNEL, usedToken, generatedUID);
     setUserUID(UID);
+
     const track = await createVoiceTrack(false, username);
-    localTrackRef.current = track; setLocalAudioTrack(track);
+    localTrackRef.current = track; 
+    setLocalAudioTrack(track);
+
     await client.publish([track]);
     await set(ref(db, `callUsers/${UID}`), username);
 
