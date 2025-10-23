@@ -1,4 +1,4 @@
-// ⚡ نسخه نهایی بهینه شده با Lazy Execution و تشخیص صدا + پخش Recording.mp3 (بدون نیاز به توکن)
+// ⚡ نسخه نهایی بهینه شده با Lazy Execution و تشخیص صدا + پخش Recording.mp3
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
@@ -28,8 +28,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
+const APP_ID = "717d9262657d4caab56f3d8a9b2089";
 const CHANNEL = "love-channel";
+const TOKEN =
+  "007eJxTYPjjwOvee5R/6nHu03eeRLcfUvT6epP76C77tY1bf9iUqvYrMJgbmqdYGpkZmZmap5gkJyYmmZqlGadYJFommicZGVhYTgz7ldEQyMiwmvUlIyMDBIL4PAw5+WWpuskZiXl5qTkMDADHEyP7";
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
@@ -219,7 +221,7 @@ const App = () => {
   const joinCall = useCallback(async () => {
     if (!username.trim()) return alert("نام خود را وارد کنید!");
     if (password !== "12213412") return alert("پسورد اشتباه است!");
-    const UID = await client.join(APP_ID, CHANNEL, null, null); // بدون توکن
+    const UID = await client.join(APP_ID, CHANNEL, TOKEN, null);
     setUserUID(UID);
     const track = await createVoiceTrack(false, username);
     localTrackRef.current = track; setLocalAudioTrack(track);
