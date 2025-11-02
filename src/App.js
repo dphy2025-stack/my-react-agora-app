@@ -29,9 +29,9 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const APP_ID = "717d9262657d4caab56f3d8a9b2089";
-const CHANNEL = "love-channel";
+const CHANNEL = "voice-call-channel";
 const TOKEN =
-  "007eJxTYPjjwOvee5R/6nHu03eeRLcfUvT6epP76C77tY1bf9iUqvYrMJgbmqdYGpkZmZmap5gkJyYmmZqlGadYJFommicZGVhYTgz7ldEQyMiwmvUlIyMDBIL4PAw5+WWpuskZiXl5qTkMDADHEyP7";
+  "007eJxTYHi77/bHOYzLEsJjzBbvLo6dxZI/1/JnpKjrogAPFWuVQk4FBnND8xRLIzMjM1PzFJPkxMQkU7M04xSLRMtE8yQjAwvLaQXsmQ2BjAxrjF2ZGRkgEMQXYijLz0xO1U1OzMnRTc5IzMtLzWFgAACS6iIS";
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
@@ -115,7 +115,7 @@ const App = () => {
       if (!inCall) return;
       try {
         const stats = await client.getRTCStats();
-        const rtt = stats.rtt || 0;
+        const rtt = stats.RTT || 0;
         if (rtt < 150) setConnectionQuality("عالی");
         else if (rtt < 300) setConnectionQuality("خوب");
         else if (rtt < 500) setConnectionQuality("متوسط");
@@ -123,7 +123,7 @@ const App = () => {
       } catch {
         setConnectionQuality("–");
       }
-    }, 3000);
+    }, 1000);
     return () => clearInterval(interval);
   }, [client, inCall]);
 
@@ -311,7 +311,7 @@ const App = () => {
             <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
             <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
               {Object.keys(usersInCall).map(uid => (
-                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"rgba(216,238,144,1)", padding:"10px", borderRadius:"5px", width:"105%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
+                <li key={uid} style={{listStyleType:"none", margin:"5px", background:"lightgreen", padding:"10px", borderRadius:"5px", width:"105%", position:"relative", right:"20px", fontSize:"15px", fontFamily:"vazirmatn", opacity:speakingUsers[uid]?1:0.3, transition:"opacity 0.5s ease"}}>{usersInCall[uid]}</li>
               ))}
             </ul>
           </div>
