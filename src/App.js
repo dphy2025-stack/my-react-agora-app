@@ -31,7 +31,7 @@ const db = getDatabase(app);
 const APP_ID = "717d9262657d4caab56f3d8a9b2089";
 const CHANNEL = "voice-call-channel";
 const TOKEN =
-  "007eJxTYOB1sPBONdcRjZhRse3GkW0WBe4ubNuKXn7Xvdq2KIBL6okCg7mheYqlkZmRmal5iklyYmKSqVmacYpFomWieZKRgYVlr6hQZkMgI8PB3wdZGRkgEMQXYijLz0xO1U1OzMnRTc5IzMtLzWFgAABqzCL9";
+  "007eJxTYJho0Drrxw77Kt+XbMnTuapOO08sWuxhsDaz9Lii57ElqrMUGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZOMDCws3RxsMxsCGRk+HXvJysgAgSC+EENZfmZyqm5yYk6ObnJGYl5eag4DAwACvSRk";
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
@@ -306,7 +306,7 @@ const App = () => {
       {inCall ? (
         <div style={{textAlign:"center"}}>
           <h2 style={{color:"#fff"}}>ㅤㅤㅤㅤ {Math.floor(timer/60)}:{("0"+(timer%60)).slice(-2)}ㅤㅤㅤㅤ</h2>
-          <p style={{color:"lightgreen"}}>کیفیت اتصال: {connectionQuality}</p>
+          <p style={{color:"lightgreen"}}>Connection Quality:{connectionQuality}</p>
           <div style={{marginTop:"20px"}}>
             <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
             <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
