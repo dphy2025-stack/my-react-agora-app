@@ -116,10 +116,10 @@ const App = () => {
       try {
         const stats = await client.getRTCStats();
         const rtt = stats.RTT || 0;
-        if (rtt < 150) setConnectionQuality("عالی");
-        else if (rtt < 300) setConnectionQuality("خوب");
-        else if (rtt < 500) setConnectionQuality("متوسط");
-        else setConnectionQuality("ضعیف");
+        if (rtt < 150) setConnectionQuality("Perfect");
+        else if (rtt < 300) setConnectionQuality("Good");
+        else if (rtt < 500) setConnectionQuality("Medium");
+        else setConnectionQuality("Weak");
       } catch {
         setConnectionQuality("–");
       }
@@ -306,7 +306,7 @@ const App = () => {
       {inCall ? (
         <div style={{textAlign:"center"}}>
           <h2 style={{color:"#fff"}}>ㅤㅤㅤㅤ {Math.floor(timer/60)}:{("0"+(timer%60)).slice(-2)}ㅤㅤㅤㅤ</h2>
-          <p style={{color:"lightgreen"}}>Connection Quality:{connectionQuality}</p>
+          <p style={{color:"lightgreen"}}>Connection Quality: {connectionQuality}</p>
           <div style={{marginTop:"20px"}}>
             <h3 style={{color:"white"}}><PersonIcon style={{marginBottom:"-30px", fontSize:"40px"}}/></h3>
             <ul style={{display:"flex", flexFlow:"column", justifyContent:"center", alignItems:"center", border:"1px solid gray", borderRadius:"5px"}}>
