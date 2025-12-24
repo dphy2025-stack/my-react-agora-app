@@ -31,7 +31,7 @@ const db = getDatabase(app);
 const APP_ID = "717d9262657d4caab56f3d8a9b2089";
 const CHANNEL = "voice-call-channel";
 const TOKEN =
-  "007eJxTYNi1d8s/nbu3Ne3fhG388feGimvJwTMWK+UPvp5372DyxtR2BQZzQ/MUSyMzIzNT8xST5MTEJFOzNOMUi0TLRPMkIwMLy1PNdpkNgYwMC0+xMDEyQCCIL8RQlp+ZnKqbnJiTo5uckZiXl5rDwAAAq8Yoaw==";
+  "007eJxTYLBsdJiysSKa0VXnUeu2F4KqUbssUny6Svi2mx3qkuZr1VZgMDc0T7E0MjMyMzVPMUlOTEwyNUszTrFItEw0TzIysLDkmOOd2RDIyNCecoOZkQECQXwhhrL8zORU3eTEnBzd5IzEvLzUHAYGABUbIXU=";
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
