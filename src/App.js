@@ -1,4 +1,6 @@
 // ⚡ نسخه نهایی بهینه شده با Lazy Execution و تشخیص صدا + پخش Recording.mp3
+/* eslint-disable no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
