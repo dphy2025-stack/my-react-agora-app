@@ -35,10 +35,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-const APP_ID = "717d9262657d4caab56f3d8a9b2089";
+const APP_ID = "717d9262657d4caab56f3d8a9a7b2089";
 const CHANNEL = "voice-call-channel";
 const TOKEN =
-  "007eJxTYEiy2Wz3vVpK94mh4vS9uh2zjgRVnmY+pfHzQInWh/oDLy0VGMwNzVMsjcyMzEzNU0ySExOTTM3SjFMsEi0TzZMMDCwsJ0TMzWwIZGQINDFjYWSAQBBfiKEsPzM5VTc5MSdHNzkjMS8vNYeBAQAp4iRD";
+  "007eJxTYOC7YrP2SbZA6fdFff+kLrw/tMvwpOea63ulxbbe+vr/kEquAoO5oXmKpZGZkZmpeYpJcmJikqlZmnGKRaJlonmSkYGF5fTYuZkNgYwMJ1+9YmVkgEAQX4ihLD8zOVU3OTEnRzc5IzEvLzWHgQEAb/covQ==";
 
 const App = () => {
   // 🔹 وضعیت‌های اصلی
@@ -58,7 +58,7 @@ const App = () => {
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordedChunks, setRecordedChunks] = useState([]);
   const [speakingUsers, setSpeakingUsers] = useState({});
-  const [language, setLanguage] = useState('fa'); // 'fa' for Persian, 'en' for English
+  const [language, setLanguage] = useState('fa');
   const [isEarpieceMode, setIsEarpieceMode] = useState(false);
   const [isOptimizedMode, setIsOptimizedMode] = useState(false);
   const [audioDevices, setAudioDevices] = useState([]);
@@ -150,6 +150,40 @@ const App = () => {
     getAudioDevices();
   }, []);
 
+  // 🔹 مدیریت کیفیت اتصال با استفاده از رویداد network-quality
+  useEffect(() => {
+    if (!inCall || !client) return;
+
+    const handleNetworkQuality = (stats) => {
+      // دریافت کیفیت آپلینک (ارسال) و دانلینک (دریافت)
+      const uplinkQuality = stats.uplinkNetworkQuality;
+      const downlinkQuality = stats.downlinkNetworkQuality;
+      
+      // استفاده از بدترین کیفیت بین آپلینک و دانلینک
+      const worstQuality = Math.max(uplinkQuality, downlinkQuality);
+      
+      // تبدیل عدد به متن
+      let qualityText = "–";
+      if (worstQuality === 0 || worstQuality === 1) {
+        qualityText = t.perfect;
+      } else if (worstQuality === 2 || worstQuality === 3) {
+        qualityText = t.good;
+      } else if (worstQuality === 4 || worstQuality === 5) {
+        qualityText = t.medium;
+      } else if (worstQuality === 6 || worstQuality === 7) {
+        qualityText = t.weak;
+      }
+      
+      setConnectionQuality(qualityText);
+    };
+
+    client.on("network-quality", handleNetworkQuality);
+    
+    return () => {
+      client.off("network-quality", handleNetworkQuality);
+    };
+  }, [client, inCall, language, t]);
+
   // 🔹 مدیریت خروج و رفرش
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -196,24 +230,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, [timerActive]);
 
-  // 🔹 کیفیت اتصال
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (!inCall) return;
-      try {
-        const stats = await client.getRTCStats();
-        const rtt = stats.RTT || 0;
-        if (rtt < 150) setConnectionQuality(t.perfect);
-        else if (rtt < 300) setConnectionQuality(t.good);
-        else if (rtt < 500) setConnectionQuality(t.medium);
-        else setConnectionQuality(t.weak);
-      } catch {
-        setConnectionQuality("–");
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [client, inCall, language, t]);
-
   // 🔹 پاکسازی کاربران هر ۳ ساعت
   useEffect(() => {
     const interval = setInterval(() => {
@@ -253,6 +269,34 @@ const App = () => {
     };
     detect();
   }, [rawStreamRef.current, userUID]);
+
+  // 🔹 تنظیم پارامترهای بهینه برای اینترنت ضعیف
+  const applyOptimizedSettings = useCallback(async (optimized) => {
+    if (!client || !inCall) return;
+    
+    try {
+      if (optimized) {
+        // تنظیم پارامترهای ارسال برای کیفیت پایین
+        await client.setLowStreamParameter({
+          width: 0, // برای صدا مهم نیست
+          height: 0, // برای صدا مهم نیست
+          framerate: 0, // برای صدا مهم نیست
+          bitrate: 8000 // 8kbps برای صدا
+        });
+        
+        // تنظیمات بیشتر برای بهینه‌سازی
+        // غیرفعال کردن پیش‌بینی بسته از دست رفته برای کاهش تاخیر
+        // @ts-ignore - تنظیمات داخلی Agora
+        if (client._audioConfig) {
+          client._audioConfig.bitrate = 8000;
+          client._audioConfig.channels = 1;
+          client._audioConfig.sampleRate = 8000;
+        }
+      }
+    } catch (error) {
+      console.error("Error applying optimized settings:", error);
+    }
+  }, [client, inCall]);
 
   // 🔹 ساخت ترک صدا با قابلیت بهینه‌سازی
   const createVoiceTrack = useCallback(async (enableVoice, nameLabel, optimized = false) => {
@@ -299,11 +343,9 @@ const App = () => {
     
     try {
       if (earpieceMode) {
-        // تلاش برای استفاده از خروجی گوشی (earpiece)
         if (audioOutputRef.current) {
           // @ts-ignore - ویژگی اختصاصی برای اندروید
           if (audioOutputRef.current.setSinkId) {
-            // پیدا کردن خروجی گوشی (معمولاً با نام "Earpiece" یا "Handset")
             const earpieceDevice = audioDevices.find(d => 
               d.label.toLowerCase().includes('earpiece') || 
               d.label.toLowerCase().includes('handset') ||
@@ -316,14 +358,12 @@ const App = () => {
           }
         }
         
-        // روش جایگزین: تنظیم حالت صوتی
         // @ts-ignore - ویژگی اختصاصی برای اندروید
         if (navigator.audio && navigator.audio.setMode) {
           // @ts-ignore
           await navigator.audio.setMode('earpiece');
         }
       } else {
-        // برگشت به حالت بلندگو
         // @ts-ignore
         if (audioOutputRef.current && audioOutputRef.current.setSinkId) {
           // @ts-ignore
@@ -370,39 +410,55 @@ const App = () => {
     setIsEarpieceMode(newMode);
     await setAudioOutput(newMode);
     
-    // تنظیم volume برای بهینه‌سازی حالت گوشی
     if (audioOutputRef.current) {
       audioOutputRef.current.volume = newMode ? 0.7 : 1.0;
     }
   }, [isEarpieceMode, isAndroid, setAudioOutput, language]);
 
+  // 🔹 حالت بهینه‌سازی شده (اصلاح شده)
   const toggleOptimizedMode = useCallback(async () => {
     const newMode = !isOptimizedMode;
-    setIsOptimizedMode(newMode);
     
     if (inCall && localTrackRef.current) {
-      // قطع و اتصال مجدد با تنظیمات جدید
-      await client.unpublish([localTrackRef.current]);
-      localTrackRef.current.close();
-      
-      const newTrack = await createVoiceTrack(false, username, newMode);
-      localTrackRef.current = newTrack;
-      setLocalAudioTrack(newTrack);
-      await client.publish([newTrack]);
-      
-      // تنظیم بیت‌ریت بسیار پایین برای اینترنت ضعیف
-      if (newMode) {
-        // @ts-ignore - تنظیمات اختصاصی Agora
-        client.setStreamParameters({
-          audio: {
-            bitrate: 8000, // 8kbps بسیار پایین
-            channels: 1, // Mono
-            sampleRate: 8000 // 8kHz
-          }
-        });
+      try {
+        // اعمال تنظیمات بهینه
+        await applyOptimizedSettings(newMode);
+        
+        // قطع و اتصال مجدد با تنظیمات جدید
+        await client.unpublish([localTrackRef.current]);
+        localTrackRef.current.close();
+        
+        // ایجاد ترک جدید با تنظیمات بهینه
+        const newTrack = await createVoiceTrack(false, username, newMode);
+        localTrackRef.current = newTrack;
+        setLocalAudioTrack(newTrack);
+        
+        // انتشار ترک جدید
+        await client.publish([newTrack]);
+        
+        // تنظیم بیت‌ریت بسیار پایین برای اینترنت ضعیف
+        if (newMode) {
+          // تنظیم پارامترهای استریم از طریق publish با کیفیت پایین
+          // این کار به صورت خودکار توسط encoderConfig انجام می‌شود
+          console.log("Optimized mode activated: 8kbps, mono, 8kHz");
+        }
+        
+        setIsOptimizedMode(newMode);
+        
+        // نمایش پیام به کاربر
+        const message = newMode 
+          ? (language === 'fa' ? 'حالت بهینه فعال شد - کیفیت صدا کاهش یافت' : 'Optimized mode activated - Audio quality reduced')
+          : (language === 'fa' ? 'حالت عادی فعال شد' : 'Normal mode activated');
+        alert(message);
+        
+      } catch (error) {
+        console.error("Error toggling optimized mode:", error);
+        alert(language === 'fa' ? 'خطا در تغییر حالت بهینه' : 'Error toggling optimized mode');
       }
+    } else {
+      setIsOptimizedMode(newMode);
     }
-  }, [isOptimizedMode, inCall, client, createVoiceTrack, username]);
+  }, [isOptimizedMode, inCall, client, createVoiceTrack, username, language, applyOptimizedSettings]);
 
   const joinCall = useCallback(async () => {
     if (!username.trim()) return alert(language === 'fa' ? "نام خود را وارد کنید!" : "Please enter your name!");
@@ -443,6 +499,9 @@ const App = () => {
     
     client.on("user-left", user => remove(ref(db, `callUsers/${user.uid}`)));
     setInCall(true);
+    
+    // فعال کردن گزارش‌گیری کیفیت شبکه
+    client.enableAudioVolumeIndicator(); // این رویداد network-quality را فعال می‌کند
   }, [username, password, client, createVoiceTrack, language, isOptimizedMode, isEarpieceMode, isAndroid, setAudioOutput]);
 
   const toggleMute = useCallback(async () => {
@@ -502,7 +561,9 @@ const App = () => {
     setIsOptimizedMode(false);
   }, [localAudioTrack, client, userUID, isRecording, mediaRecorder]);
 
-  // 🔹 UI با طراحی جدید و دو زبانه
+  // بقیه کد UI بدون تغییر باقی می‌ماند...
+  // (برای خلاصه‌سازی، کد UI را دوباره نمی‌نویسم - همان کد قبلی را حفظ کنید)
+  
   if (!nameEntered) {
     return (
       <div className="css-gradient-animation" style={{ 
