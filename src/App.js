@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import { initializeApp } from "firebase/app";
 import { getDatabase, onValue, ref, remove, set } from "firebase/database";
