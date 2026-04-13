@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "dev:watch": "node --watch server.js",
+    "dev:fg": "winpty node server.js"
   },
   "dependencies": {
     "agora-access-token": "^2.0.4",

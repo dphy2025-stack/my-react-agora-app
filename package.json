@@ -23,6 +23,10 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "dev": "react-scripts start",
+    "dev:fg": "winpty react-scripts start",
+    "backend": "npm --prefix backend run dev",
+    "backend:watch": "npm --prefix backend run dev:watch",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

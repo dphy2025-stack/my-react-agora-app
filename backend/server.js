@@ -14,6 +14,7 @@ if (fs.existsSync(envPath)) {
 
 const app = express();
 app.use(express.json());
+app.disable("x-powered-by");
 
 const APP_ID = (process.env.APP_ID || "").trim();
 const APP_CERTIFICATE = (process.env.APP_CERTIFICATE || "").trim();
@@ -43,6 +44,15 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
+
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled rejection:", error);
+});
 
 const nowInSeconds = () => Math.floor(Date.now() / 1000);
 

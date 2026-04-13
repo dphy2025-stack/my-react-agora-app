@@ -8,7 +8,6 @@ import {
   ContentCopy,
   FiberManualRecord,
   GraphicEq,
-  Hearing,
   Mic,
   MicOff,
   Settings,
@@ -35,9 +34,8 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const APP_ID = process.env.REACT_APP_AGORA_APP_ID || "717d9262657d4caab56f3d8a9a7b2089";
-const ADMIN_BACKEND_STORAGE_KEY = "https://surviving-phoenix-suspend.ngrok-free.dev";
-const ENV_BACKEND_URL = process.env.REACT_APP_TOKEN_SERVER_URL || "";
-const LOCAL_BACKEND_URL = "https://surviving-phoenix-suspend.ngrok-free.dev";
+const ADMIN_BACKEND_STORAGE_KEY = "voice_call_admin_backend_url";
+const LOCAL_BACKEND_URL = "http://localhost:5000";
 
 const toRoomKey = (value) =>
   value
@@ -86,9 +84,8 @@ const App = () => {
   const [roomMode, setRoomMode] = useState("create");
 
   const [adminBackendUrl, setAdminBackendUrl] = useState(() => {
-    return localStorage.getItem(ADMIN_BACKEND_STORAGE_KEY) || ENV_BACKEND_URL;
+    return localStorage.getItem(ADMIN_BACKEND_STORAGE_KEY) || LOCAL_BACKEND_URL;
   });
-  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [activeBackendUrl, setActiveBackendUrl] = useState("");
 
   const [inCall, setInCall] = useState(false);
@@ -108,7 +105,6 @@ const App = () => {
 
   const localTrackRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const titleTapRef = useRef({ count: 0, lastAt: 0 });
   const previousUserIdsRef = useRef([]);
   const joinSoundRef = useRef(new Audio(notificationSound));
   const recordingSoundRef = useRef(new Audio(recordingSound));
@@ -215,17 +211,6 @@ const App = () => {
   }, [adminBackendUrl]);
 
   useEffect(() => {
-    const onKeyDown = (event) => {
-      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "u") {
-        setShowAdminPanel((prev) => !prev);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  useEffect(() => {
     if (!activeRoomKey) return undefined;
 
     const usersRef = ref(db, `callUsers/${activeRoomKey}`);
@@ -298,10 +283,23 @@ const App = () => {
   }, [activeRoomKey, userUID]);
 
   const backendCandidates = useMemo(() => {
-    return [adminBackendUrl, ENV_BACKEND_URL, LOCAL_BACKEND_URL]
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const preferred = adminBackendUrl.trim();
+    if (preferred) {
+      return [preferred];
+    }
+    return [LOCAL_BACKEND_URL];
   }, [adminBackendUrl]);
+
+  const getBackendHeaders = useCallback((baseUrl, includeJson = false) => {
+    const headers = {};
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (baseUrl.includes("ngrok")) {
+      headers["ngrok-skip-browser-warning"] = "true";
+    }
+    return headers;
+  }, []);
 
   const resolveBackendBaseUrl = useCallback(async () => {
     for (const baseUrl of backendCandidates) {
@@ -309,7 +307,11 @@ const App = () => {
 
       try {
         const cleanUrl = baseUrl.replace(/\/+$/, "");
-        const healthRes = await withTimeout(`${cleanUrl}/health`, { method: "GET" }, 3500);
+        const healthRes = await withTimeout(
+          `${cleanUrl}/health`,
+          { method: "GET", headers: getBackendHeaders(cleanUrl) },
+          6500
+        );
         if (healthRes.ok) {
           return cleanUrl;
         }
@@ -319,23 +321,23 @@ const App = () => {
     }
 
     throw new Error(t.backendNotReachable);
-  }, [backendCandidates, t.backendNotReachable]);
+  }, [backendCandidates, getBackendHeaders, t.backendNotReachable]);
 
-  const requestToken = useCallback(async () => {
+  const requestToken = useCallback(async (tokenMode, tokenRoomName, tokenRoomPassword) => {
     const baseUrl = await resolveBackendBaseUrl();
 
     const response = await withTimeout(
       `${baseUrl}/api/rooms/token`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getBackendHeaders(baseUrl, true),
         body: JSON.stringify({
-          mode: roomMode,
-          roomName: roomName.trim(),
-          roomPassword: roomPassword.trim(),
+          mode: tokenMode,
+          roomName: tokenRoomName,
+          roomPassword: tokenRoomPassword,
         }),
       },
-      9000
+      13000
     );
 
     const data = await response.json().catch(() => ({}));
@@ -346,7 +348,7 @@ const App = () => {
 
     setActiveBackendUrl(baseUrl);
     return data;
-  }, [resolveBackendBaseUrl, roomMode, roomName, roomPassword, t.backendTokenError]);
+  }, [resolveBackendBaseUrl, getBackendHeaders, t.backendTokenError]);
 
   const joinCall = useCallback(async () => {
     if (!APP_ID) {
@@ -382,9 +384,11 @@ const App = () => {
     setJoining(true);
 
     try {
-      const tokenPayload = await requestToken();
+      const safeRoomName = roomName.trim();
+      const safeRoomPassword = roomPassword.trim();
+      const tokenPayload = await requestToken(roomMode, safeRoomName, safeRoomPassword);
       const { token, uid, roomName: finalRoomName } = tokenPayload;
-      const finalName = finalRoomName || roomName.trim();
+      const finalName = finalRoomName || safeRoomName;
       const finalRoomKey = toRoomKey(finalName);
 
       const joinedUid = await client.join(APP_ID, finalName, token, uid);
@@ -394,6 +398,7 @@ const App = () => {
       localTrackRef.current = localTrack;
       await client.publish([localTrack]);
       client.enableAudioVolumeIndicator();
+      client.removeAllListeners();
 
       await set(ref(db, `callUsers/${finalRoomKey}/${joinedUid}`), username.trim());
 
@@ -416,6 +421,28 @@ const App = () => {
         await remove(ref(db, `callUsers/${finalRoomKey}/${user.uid}`)).catch(() => {});
       });
 
+      const renewToken = async () => {
+        try {
+          const renewed = await requestToken("join", finalName, safeRoomPassword);
+          if (renewed?.token) {
+            await client.renewToken(renewed.token);
+          }
+        } catch (_error) {
+          // best effort
+        }
+      };
+
+      client.on("token-privilege-will-expire", renewToken);
+      client.on("token-privilege-did-expire", renewToken);
+      client.on("connection-state-change", (currentState, _prevState, reason) => {
+        if (currentState === "RECONNECTING") {
+          setConnectionQuality(t.medium);
+        }
+        if (currentState === "DISCONNECTED" && reason !== "LEAVE") {
+          setConnectionQuality(t.weak);
+        }
+      });
+
       setActiveRoomName(finalName);
       setActiveRoomKey(finalRoomKey);
       previousUserIdsRef.current = [String(joinedUid)];
@@ -431,6 +458,7 @@ const App = () => {
     backendCandidates.length,
     client,
     requestToken,
+    roomMode,
     roomName,
     roomPassword,
     t.appIdError,
@@ -438,8 +466,10 @@ const App = () => {
     t.backendNotReachable,
     t.backendTokenError,
     t.nameRequired,
+    t.medium,
     t.roomNameRequired,
     t.roomPasswordRequired,
+    t.weak,
     username,
   ]);
 
@@ -448,7 +478,10 @@ const App = () => {
     if (!track) return;
     await track.setEnabled(isMuted);
     setIsMuted((prev) => !prev);
-  }, [isMuted]);
+    if (!isMuted && userUID !== null) {
+      setSpeakingUsers((prev) => ({ ...prev, [userUID]: false }));
+    }
+  }, [isMuted, userUID]);
 
   const toggleMicVolume = useCallback(() => {
     const track = localTrackRef.current;
@@ -515,6 +548,8 @@ const App = () => {
       mediaRecorderRef.current?.stop();
       localTrackRef.current?.stop();
       localTrackRef.current?.close();
+      localTrackRef.current = null;
+      client.removeAllListeners();
       await client.leave();
     } finally {
       if (activeRoomKey) {
@@ -539,6 +574,7 @@ const App = () => {
       setActiveRoomName("");
       setActiveRoomKey("");
       setUserUID(null);
+      setActiveBackendUrl("");
     }
   }, [activeRoomKey, client, userUID]);
 
@@ -553,25 +589,12 @@ const App = () => {
     alert(t.copied);
   }, [activeRoomName, inviteCode, roomPassword, t.copied]);
 
-  const onTitleSecretTap = useCallback(() => {
-    const now = Date.now();
-    const prev = titleTapRef.current;
-    const withinWindow = now - prev.lastAt < 1800;
-    const nextCount = withinWindow ? prev.count + 1 : 1;
-
-    titleTapRef.current = { count: nextCount, lastAt: now };
-
-    if (nextCount >= 5) {
-      setShowAdminPanel((state) => !state);
-      titleTapRef.current = { count: 0, lastAt: 0 };
-    }
-  }, []);
-
   const saveAdminBackend = useCallback(() => {
-    const value = adminBackendUrl.trim();
+    const value = adminBackendUrl.trim().replace(/\/+$/, "");
     if (!value) {
-      setAdminBackendUrl("");
-      alert(t.copied);
+      setAdminBackendUrl(LOCAL_BACKEND_URL);
+      setActiveBackendUrl("");
+      alert(t.backendConnected);
       return;
     }
     if (!isHttpUrl(value)) {
@@ -579,8 +602,9 @@ const App = () => {
       return;
     }
     setAdminBackendUrl(value);
-    alert(t.copied);
-  }, [adminBackendUrl, t.backendInvalidUrl, t.copied]);
+    setActiveBackendUrl(value);
+    alert(`${t.backendConnected}: ${value}`);
+  }, [adminBackendUrl, t.backendConnected, t.backendInvalidUrl]);
 
   if (!inCall) {
     return (
@@ -591,7 +615,7 @@ const App = () => {
         </button>
 
         <div className="entry-card">
-          <h1 className="entry-title" onClick={onTitleSecretTap}>
+          <h1 className="entry-title">
             {t.title}
           </h1>
           <p className="entry-subtitle">{t.subtitle}</p>
@@ -640,36 +664,30 @@ const App = () => {
             {joining ? t.waitingBackend : t.startCall}
           </button>
 
-          <p className="hint-text">{t.adminAccessHint}</p>
-          {activeBackendUrl ? <p className="backend-badge">{t.backendConnected}: {activeBackendUrl}</p> : null}
-
-          {showAdminPanel ? (
-            <div className="admin-panel">
-              <div className="admin-title">
-                <Settings fontSize="small" />
-                {t.adminPanelTitle}
-              </div>
-
-              <input
-                dir="ltr"
-                className="nameInput"
-                placeholder={t.adminBackendLabel}
-                value={adminBackendUrl}
-                onChange={(event) => setAdminBackendUrl(event.target.value)}
-              />
-
-              <p className="admin-guide">{t.adminGuide}</p>
-
-              <div className="admin-grid">
-                <button className="btn-gradient" onClick={saveAdminBackend}>
-                  {t.adminSave}
-                </button>
-                <button className="btn-gradient" onClick={() => setShowAdminPanel(false)}>
-                  {t.adminClose}
-                </button>
-              </div>
+          <div className="admin-panel">
+            <div className="admin-title">
+              <Settings fontSize="small" />
+              {t.adminPanelTitle}
             </div>
-          ) : null}
+
+            <input
+              dir="ltr"
+              className="nameInput"
+              placeholder={t.adminBackendLabel}
+              value={adminBackendUrl}
+              onChange={(event) => setAdminBackendUrl(event.target.value)}
+            />
+
+            <p className="admin-guide">{t.adminGuide}</p>
+
+            <div className="admin-grid">
+              <button className="btn-gradient" onClick={saveAdminBackend}>
+                {t.adminSave}
+              </button>
+            </div>
+          </div>
+
+          {activeBackendUrl ? <p className="backend-badge">{t.backendConnected}: {activeBackendUrl}</p> : null}
         </div>
       </div>
     );
@@ -705,37 +723,62 @@ const App = () => {
             <PersonIcon fontSize="small" /> {t.users} ({Object.keys(usersInCall).length})
           </h4>
           <div className="users-list">
-            {Object.keys(usersInCall).map((uid) => (
-              <div
-                key={uid}
-                className="user-chip"
-                style={{
-                  background: speakingUsers[uid] ? "linear-gradient(135deg, #0f3f2f 0%, #0a2d22 100%)" : "rgba(255,255,255,0.08)",
-                  border: speakingUsers[uid] ? "1px solid rgba(74, 222, 128, 0.5)" : "1px solid rgba(255,255,255,0.12)",
-                }}
-              >
-                <span>{usersInCall[uid]}</span>
-                {speakingUsers[uid] ? <Hearing fontSize="small" sx={{ color: "#4ade80" }} /> : null}
-              </div>
-            ))}
+            {Object.keys(usersInCall).map((uid) => {
+              const isSelf = Number(uid) === Number(userUID);
+              const isSpeaking = Boolean(speakingUsers[uid]);
+              const shouldShowSpeaking = isSpeaking && !(isSelf && isMuted);
+
+              return (
+                <div
+                  key={uid}
+                  className={`user-chip ${shouldShowSpeaking ? "is-speaking" : "is-idle"} ${
+                    isSelf && isMuted ? "is-muted" : ""
+                  }`}
+                >
+                  <span>{usersInCall[uid]}</span>
+                  {shouldShowSpeaking ? (
+                    <GraphicEq fontSize="small" className="chip-icon speaking-icon" />
+                  ) : isSelf && isMuted ? (
+                    <MicOff fontSize="small" className="chip-icon muted-icon" />
+                  ) : (
+                    <Circle sx={{ fontSize: 10 }} className="chip-icon idle-icon" />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
 
         <div className="control-grid">
-          <button className="control-btn" onClick={toggleMute}>
-            {isMuted ? <MicOff /> : <Mic />} {isMuted ? t.unmute : t.mute}
+          <button
+            className={`control-btn icon-only ${isMuted ? "active" : ""}`}
+            onClick={toggleMute}
+            title={isMuted ? t.unmute : t.mute}
+            aria-label={isMuted ? t.unmute : t.mute}
+          >
+            {isMuted ? <MicOff /> : <Mic />}
           </button>
 
-          <button className="control-btn" onClick={toggleMicVolume}>
-            {micLowered ? <VolumeUp /> : <VolumeDown />} {micLowered ? t.normalMic : t.lowerMic}
+          <button
+            className={`control-btn icon-only ${micLowered ? "active" : ""}`}
+            onClick={toggleMicVolume}
+            title={micLowered ? t.normalMic : t.lowerMic}
+            aria-label={micLowered ? t.normalMic : t.lowerMic}
+          >
+            {micLowered ? <VolumeUp /> : <VolumeDown />}
           </button>
 
-          <button className="control-btn" onClick={toggleRecording}>
-            {isRecording ? <Stop /> : <FiberManualRecord />} {isRecording ? t.stopRecord : t.record}
+          <button
+            className={`control-btn icon-only ${isRecording ? "recording" : ""}`}
+            onClick={toggleRecording}
+            title={isRecording ? t.stopRecord : t.record}
+            aria-label={isRecording ? t.stopRecord : t.record}
+          >
+            {isRecording ? <Stop /> : <FiberManualRecord />}
           </button>
 
-          <button className="control-btn leave" onClick={leaveCall}>
-            <CallEnd /> {t.leaveCall}
+          <button className="control-btn icon-only leave" onClick={leaveCall} title={t.leaveCall} aria-label={t.leaveCall}>
+            <CallEnd />
           </button>
         </div>
       </div>
