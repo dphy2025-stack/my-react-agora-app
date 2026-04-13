@@ -37,7 +37,7 @@ const db = getDatabase(app);
 const APP_ID = process.env.REACT_APP_AGORA_APP_ID || "717d9262657d4caab56f3d8a9a7b2089";
 const ADMIN_BACKEND_STORAGE_KEY = "voice_call_admin_backend_url";
 const ENV_BACKEND_URL = process.env.REACT_APP_TOKEN_SERVER_URL || "";
-const LOCAL_BACKEND_URL = "http://localhost:5000";
+const LOCAL_BACKEND_URL = "https://surviving-phoenix-suspend.ngrok-free.dev";
 
 const toRoomKey = (value) =>
   value
