@@ -125,6 +125,18 @@ body[data-theme="light"] {
   animation: cardIn 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
+.section-toggle {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(164, 209, 236, 0.3);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(10, 33, 50, 0.58);
+  color: #d6efff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .settings-fab {
   align-self: flex-end;
   display: inline-flex;
@@ -247,6 +259,7 @@ input:-webkit-autofill:active {
   align-items: center;
   justify-content: center;
   font-size: 48px;
+  line-height: 1;
 }
 
 .emoji-grid {
@@ -264,6 +277,10 @@ input:-webkit-autofill:active {
   color: #fff;
   cursor: pointer;
   font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .emoji-btn.selected {
@@ -440,11 +457,18 @@ body[data-theme="light"] .chip-avatar-emoji {
 .history-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
   border: 1px solid rgba(171, 211, 239, 0.24);
   border-radius: 10px;
-  padding: 8px 10px;
+  padding: 10px 12px;
   background: rgba(8, 30, 44, 0.76);
+  font-size: 12px;
+  color: #d7ecff;
+}
+
+.history-item strong {
+  color: #f3fbff;
+  font-size: 13px;
 }
 
 .status-online {
@@ -477,8 +501,9 @@ body[data-theme="light"] .chip-avatar-emoji {
 
 .mini-avatar.large,
 .mini-avatar-emoji.large {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
 }
 
 .mini-avatar {
@@ -525,6 +550,12 @@ body[data-theme="light"] .chip-avatar-emoji {
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+
+body[data-theme="light"] .btn-gradient {
+  background: linear-gradient(145deg, rgba(95, 170, 215, 0.95) 0%, rgba(63, 140, 188, 0.95) 100%);
+  color: #0a2840;
+  border-color: rgba(31, 101, 141, 0.35);
 }
 
 .btn-gradient:hover {
@@ -613,6 +644,13 @@ body[data-theme="light"] .chip-avatar-emoji {
   overflow: hidden;
 }
 
+body[data-theme="light"] .call-screen {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(96, 179, 228, 0.28) 0%, rgba(231, 246, 255, 0) 45%),
+    radial-gradient(circle at 0% 100%, rgba(30, 197, 141, 0.16) 0%, rgba(231, 246, 255, 0) 45%),
+    #eaf7ff;
+}
+
 .call-screen::before {
   left: -160px;
   bottom: -220px;
@@ -631,6 +669,12 @@ body[data-theme="light"] .chip-avatar-emoji {
   position: relative;
   z-index: 1;
   animation: cardIn 0.55s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+body[data-theme="light"] .call-card {
+  background: rgba(244, 252, 255, 0.9);
+  border-color: rgba(58, 120, 157, 0.25);
+  color: #0f2b40;
 }
 
 .call-header {
@@ -671,6 +715,10 @@ body[data-theme="light"] .chip-avatar-emoji {
 
 .quality-pill.stability-high {
   color: #38bdf8;
+}
+
+.quality-pill.stability-higher {
+  color: #f59e0b;
 }
 
 .timer-row {
@@ -997,6 +1045,7 @@ body[data-theme="light"] .chip-avatar-emoji {
 body[data-theme="dark"] .swal-modal {
   background: #0c1d2b;
   border: 1px solid rgba(160, 208, 237, 0.25);
+  max-width: 350px;
 }
 
 body[data-theme="dark"] .swal-title,
@@ -1011,6 +1060,7 @@ body[data-theme="dark"] .swal-button {
 body[data-theme="light"] .swal-modal {
   background: #f6fbff;
   border: 1px solid rgba(36, 87, 119, 0.22);
+  max-width: 350px;
 }
 
 body[data-theme="light"] .swal-title,
@@ -1020,6 +1070,46 @@ body[data-theme="light"] .swal-text {
 
 body[data-theme="light"] .swal-button {
   background: #0f9a63;
+}
+
+.swal-title {
+  font-family: "vazirmatn", sans-serif;
+  font-size: 18px;
+}
+
+.swal-text {
+  font-family: "vazirmatn", sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.session-block-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(8, 18, 28, 0.64);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-block-card {
+  width: min(420px, 90vw);
+  background: rgba(9, 30, 45, 0.95);
+  border: 1px solid rgba(177, 219, 245, 0.34);
+  border-radius: 16px;
+  padding: 16px;
+  color: #f2faff;
+}
+
+.session-block-card h4 {
+  margin: 0 0 8px;
+}
+
+.session-block-card p {
+  margin: 0;
+  color: #b9d6eb;
 }
 
 .swal-icon--success:before,

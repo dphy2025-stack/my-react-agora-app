@@ -75,12 +75,17 @@ const PROFILE_COLORS = [
   "#f97316",
   "#e11d48",
 ];
-const PROFILE_EMOJIS = ["🙂", "😎", "🤖", "🔥", "💚", "🎧", "✨", "🦊", "🐼", "🐯", "🌟", "🚀", "🎤", "🎵", "🧠", "🍀"];
+const PROFILE_EMOJIS = [
+  "🙂", "😎", "🤖", "🔥", "💚", "🎧", "✨", "🦊", "🐼", "🐯", "🌟", "🚀", "🎤", "🎵", "🧠", "🍀",
+  "🦁", "🐨", "🐶", "🐱", "🫶", "💫", "⚡", "🎯", "🛰️", "🛡️", "💎", "🕊️", "🌈", "🌙", "☀️", "🧩",
+  "🥷", "👑", "🦄", "🐙", "🐬", "🧸", "🎮", "📚", "✈️", "🏔️", "🌊", "🍁", "🍉", "🥑", "☕", "🍪",
+];
 
 const STABILITY_MODES = {
   balanced: "balanced",
-  ultra: "ultra",
+  higher: "higher",
   high: "high",
+  ultra: "ultra",
 };
 const CONTACT_REQUEST_STATUS = {
   pending: "pending",
@@ -264,7 +269,7 @@ const App = () => {
   const [blockedContacts, setBlockedContacts] = useState({});
   const [contactRequests, setContactRequests] = useState([]);
   const [searchUid, setSearchUid] = useState("");
-  const [searchResult, setSearchResult] = useState(null);
+  const [searchResults, setSearchResults] = useState([]);
   const [incomingInvites, setIncomingInvites] = useState([]);
   const [missedCalls, setMissedCalls] = useState([]);
   const [pendingNotifications, setPendingNotifications] = useState(0);
@@ -281,6 +286,9 @@ const App = () => {
   const [pendingGroupJoin, setPendingGroupJoin] = useState(null);
   const [isGroupCallSession, setIsGroupCallSession] = useState(false);
   const [sessionBlocked, setSessionBlocked] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showStabilityPicker, setShowStabilityPicker] = useState(false);
 
   const [adminBackendUrl, setAdminBackendUrl] = useState(() => {
     return localStorage.getItem(ADMIN_BACKEND_STORAGE_KEY) || LOCAL_BACKEND_URL;
@@ -423,6 +431,7 @@ const App = () => {
       profileColorLabel: "Name background color",
       stabilityLabel: "Call stability mode",
       stabilityBalanced: "Balanced",
+      stabilityHigher: "Higher Stable",
       stabilityUltra: "Ultra Stable",
       stabilityHigh: "High Quality",
       stabilityHelp:
@@ -526,7 +535,7 @@ const App = () => {
       sessionWith: "Session with",
       settingsHeader: "Control Center",
       groupCall: "Group Call",
-      groupLobbyTitle: "Group Lobby",
+      groupLobbyTitle: "Call Lounge",
       inviteOnlineContacts: "Invite online contacts",
       lobbyMembers: "Lobby members",
       startGroupCall: "Start Group Call",
@@ -557,6 +566,13 @@ const App = () => {
       leaveLobbyConfirm: "Do you want to leave the lobby?",
       roomCreateFailed: "Room creation failed. Please try again.",
       sessionInUse: "This account is active in another browser/tab/device. Close that session first.",
+      searchByNameOrUid: "Search by name or UID",
+      leaveCallConfirm: "Do you want to leave the call?",
+      leaveCallConfirmTitle: "Leave Call",
+      leavePageWarning: "Are you sure you want to leave and exit the call?",
+      actionConfirm: "Confirmation",
+      confirmBlock: "Do you want to block this contact?",
+      confirmRemove: "Do you want to remove this contact?",
     },
   };
 
@@ -629,7 +645,8 @@ const App = () => {
           setProfileAvatar(data.avatar || "");
           setProfileEmoji(data.emoji || "");
           setProfileColor(data.color || DEFAULT_PROFILE_COLOR);
-          setStabilityMode(data.stabilityMode || STABILITY_MODES.balanced);
+          const loadedMode = data.stabilityMode || STABILITY_MODES.balanced;
+          setStabilityMode(loadedMode === "ultra" ? STABILITY_MODES.higher : loadedMode);
           setIsAnonymous(Boolean(data.isAnonymous));
           setProfileGender(data.gender || "not_set");
           setProfileBirthDate(data.birthDate || "");
@@ -1177,6 +1194,27 @@ const App = () => {
         totalCallSeconds: profileCallSeconds || 0,
         totalSpeakingSeconds: profileSpeakingSeconds || 0,
       });
+      await update(ref(db, `uidDirectory/${immutableUid}`), {
+        name: effectiveName,
+        avatar: profileAvatar || "",
+        emoji: profileEmoji || "",
+        color: profileColor || DEFAULT_PROFILE_COLOR,
+        gender: profileGender || "not_set",
+        birthDate: profileBirthDate || "",
+        lastSeen: Date.now(),
+      }).catch(() => {});
+      await Promise.allSettled(
+        Object.values(contacts || {}).map((contact) => {
+          if (!contact?.profileId || !immutableUid) return Promise.resolve();
+          return update(ref(db, `contacts/${contact.profileId}/${immutableUid}`), {
+            name: effectiveName,
+            avatar: profileAvatar || "",
+            emoji: profileEmoji || "",
+            color: profileColor || DEFAULT_PROFILE_COLOR,
+            lastSeen: Date.now(),
+          });
+        })
+      );
       setProfileUid(immutableUid);
       setProfileName(effectiveName);
       setUsername(effectiveName);
@@ -1191,8 +1229,14 @@ const App = () => {
     isAnonymous,
     profileCallSeconds,
     profileSpeakingSeconds,
+    contacts,
     profileId,
     profileName,
+    profileAvatar,
+    profileEmoji,
+    profileColor,
+    profileGender,
+    profileBirthDate,
     profilePayload,
     profileUid,
     notify,
@@ -1207,16 +1251,11 @@ const App = () => {
     const usersRef = ref(db, `callUsers/${activeRoomKey}`);
     const unsubscribe = onValue(usersRef, (snapshot) => {
       const data = snapshot.val() || {};
-      const now = Date.now();
       const filtered = {};
       Object.entries(data).forEach(([id, item]) => {
         const normalized = normalizeCallUser(item);
         const isValid = Boolean(normalized.name && normalized.name !== "User");
-        const stale = now - Number(normalized.lastSeen || 0) > 30000;
-        if (!isValid || stale) {
-          remove(ref(db, `callUsers/${activeRoomKey}/${id}`)).catch(() => {});
-          return;
-        }
+        if (!isValid) return;
         filtered[id] = item;
         callParticipantsRef.current[normalized.uid || id] = normalized.name || normalized.uid || String(id);
       });
@@ -1331,7 +1370,11 @@ const App = () => {
   }, [client, inCall, t.good, t.medium, t.perfect, t.weak]);
 
   useEffect(() => {
-    const handleBeforeUnload = () => {
+    const handleBeforeUnload = (event) => {
+      if (inCall) {
+        event.preventDefault();
+        event.returnValue = t.leavePageWarning;
+      }
       if (userUID && activeRoomKey) {
         remove(ref(db, `callUsers/${activeRoomKey}/${userUID}`)).catch(() => {});
       }
@@ -1339,7 +1382,7 @@ const App = () => {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [activeRoomKey, userUID]);
+  }, [activeRoomKey, inCall, t.leavePageWarning, userUID]);
 
   useEffect(() => {
     if (!inCall || !activeRoomKey || userUID === null) return undefined;
@@ -1348,11 +1391,15 @@ const App = () => {
       update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), {
         lastSeen: Date.now(),
         networkStatus: localNetworkStatus,
+        name: profileName || username || profileUid || "User",
+        avatar: profileAvatar || "",
+        emoji: profileEmoji || "",
+        color: profileColor || DEFAULT_PROFILE_COLOR,
       }).catch(() => {});
     }, 7000);
 
     return () => clearInterval(interval);
-  }, [activeRoomKey, inCall, localNetworkStatus, userUID]);
+  }, [activeRoomKey, inCall, localNetworkStatus, userUID, profileName, username, profileUid, profileAvatar, profileEmoji, profileColor]);
 
   const backendCandidates = useMemo(() => {
     const preferred = adminBackendUrl.trim();
@@ -1503,12 +1550,18 @@ const App = () => {
       const safeRoomName = requestedRoomName;
       const safeRoomPassword = requestedRoomPassword;
       const encoderConfig =
-        stabilityMode === STABILITY_MODES.ultra
+        stabilityMode === STABILITY_MODES.higher
           ? {
               sampleRate: 16000,
               stereo: false,
               bitrate: 18,
             }
+          : stabilityMode === STABILITY_MODES.ultra
+            ? {
+                sampleRate: 8000,
+                stereo: false,
+                bitrate: 12,
+              }
           : stabilityMode === STABILITY_MODES.high
             ? {
                 sampleRate: 48000,
@@ -1586,8 +1639,10 @@ const App = () => {
       const subscribeAndPlay = async (remoteUser, mediaType = "audio") => {
         await client.subscribe(remoteUser, mediaType);
         if (mediaType === "audio" && remoteUser.audioTrack) {
-          if (stabilityMode === STABILITY_MODES.ultra) {
+          if (stabilityMode === STABILITY_MODES.higher) {
             remoteUser.audioTrack.setVolume?.(30);
+          } else if (stabilityMode === STABILITY_MODES.ultra) {
+            remoteUser.audioTrack.setVolume?.(22);
           } else if (stabilityMode === STABILITY_MODES.high) {
             remoteUser.audioTrack.setVolume?.(100);
           }
@@ -1847,6 +1902,8 @@ const App = () => {
   ]);
 
   const leaveCall = useCallback(async () => {
+    const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
+    if (!ok) return;
     try {
       mediaRecorderRef.current?.stop();
       localTrackRef.current?.stop();
@@ -1892,7 +1949,7 @@ const App = () => {
       setPendingGroupJoin(null);
       speakingSecondsRef.current = 0;
     }
-  }, [activeRoomKey, client, finalizeCallHistory, userUID]);
+  }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
 
   const inviteCode = useMemo(() => {
     if (!activeRoomName || !roomPassword.trim()) return "-";
@@ -2290,20 +2347,30 @@ const App = () => {
   }, [confirmDialog, incomingInvites, profileUid, t.incomingCall, t.incomingCallBody, triggerJoinWith]);
 
   const searchByUid = useCallback(async () => {
-    const uid = searchUid.trim().toUpperCase();
-    if (!uid) return;
-    if (uid === profileUid) {
+    const query = searchUid.trim();
+    if (!query) return;
+    const uid = query.toUpperCase();
+    if (uid === profileUid || query === profileName) {
       await notify(t.cannotAddSelf, "warning");
       return;
     }
     const snapshot = await get(ref(db, `uidDirectory/${uid}`));
     if (!snapshot.exists()) {
-      setSearchResult(null);
-      await notify(t.userNotFound, "warning");
+      const allSnap = await get(ref(db, "uidDirectory")).catch(() => null);
+      const all = Object.values(allSnap?.val?.() || {});
+      const byName = all
+        .filter((item) => item?.uid !== profileUid)
+        .filter((item) => String(item?.name || "").toLowerCase().includes(query.toLowerCase()))
+        .slice(0, 12);
+      setSearchResults(byName);
+      if (!byName.length) {
+        await notify(t.userNotFound, "warning");
+      }
       return;
     }
-    setSearchResult(snapshot.val());
-  }, [notify, profileUid, searchUid, t.cannotAddSelf, t.userNotFound]);
+    const single = snapshot.val();
+    setSearchResults(single ? [single] : []);
+  }, [notify, profileName, profileUid, searchUid, t.cannotAddSelf, t.userNotFound]);
 
   const sendContactRequest = useCallback(
     async (targetUid, targetProfileId) => {
@@ -2423,6 +2490,8 @@ const App = () => {
   const blockContact = useCallback(
     async (contact) => {
       if (!profileId || !contact?.uid) return;
+      const ok = await confirmDialog(t.confirmBlock, t.actionConfirm);
+      if (!ok) return;
       await update(ref(db, `blockedContacts/${profileId}/${contact.uid}`), {
         uid: contact.uid,
         profileId: contact.profileId || "",
@@ -2432,7 +2501,7 @@ const App = () => {
       await remove(ref(db, `contacts/${profileId}/${contact.uid}`)).catch(() => {});
       await notify(t.blockedContact, "success");
     },
-    [notify, profileId, t.blockedContact]
+    [confirmDialog, notify, profileId, t.actionConfirm, t.blockedContact, t.confirmBlock]
   );
 
   const unblockContact = useCallback(
@@ -2447,10 +2516,12 @@ const App = () => {
   const removeContactFromList = useCallback(
     async (contact) => {
       if (!profileId || !contact?.uid) return;
+      const ok = await confirmDialog(t.confirmRemove, t.actionConfirm);
+      if (!ok) return;
       await remove(ref(db, `contacts/${profileId}/${contact.uid}`));
       await notify(t.contactRemoved, "success");
     },
-    [notify, profileId, t.contactRemoved]
+    [confirmDialog, notify, profileId, t.actionConfirm, t.confirmRemove, t.contactRemoved]
   );
 
   const sendCallInvite = useCallback(
@@ -2551,12 +2622,22 @@ const App = () => {
     [notify, sendContactRequest, t.userNotFound]
   );
 
+  const uiLockedOverlay = sessionBlocked ? (
+    <div className="session-block-overlay">
+      <div className="session-block-card">
+        <h4>{t.sessionInUse}</h4>
+        <p>{t.adminGuide}</p>
+      </div>
+    </div>
+  ) : null;
+
   if (!profileLoaded) {
     return (
       <div className="entry-screen">
         <div className="entry-card">
           <p className="entry-subtitle">Loading profile...</p>
         </div>
+        {uiLockedOverlay}
       </div>
     );
   }
@@ -2610,24 +2691,28 @@ const App = () => {
           </div>
 
           <div className="profile-section">
-            <p className="section-label">{t.setEmojiAvatar}</p>
-            <div className="emoji-grid">
-              {PROFILE_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  className={`emoji-btn ${profileEmoji === emoji ? "selected" : ""}`}
-                  onClick={() => {
-                    setProfileEmoji(emoji);
-                    setProfileAvatar("");
-                  }}
-                >
-                  {emoji}
+            <button className="section-toggle" onClick={() => setShowEmojiPicker((prev) => !prev)}>
+              {t.setEmojiAvatar}
+            </button>
+            {showEmojiPicker ? (
+              <div className="emoji-grid">
+                {PROFILE_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    className={`emoji-btn ${profileEmoji === emoji ? "selected" : ""}`}
+                    onClick={() => {
+                      setProfileEmoji(emoji);
+                      setProfileAvatar("");
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button className="emoji-btn clear" onClick={() => setProfileEmoji("")}>
+                  {t.noImageAvatar}
                 </button>
-              ))}
-              <button className="emoji-btn clear" onClick={() => setProfileEmoji("")}>
-                {t.noImageAvatar}
-              </button>
-            </div>
+              </div>
+            ) : null}
           </div>
 
           <input
@@ -2663,43 +2748,59 @@ const App = () => {
           </button>
 
           <div className="profile-section">
-            <p className="section-label">{t.profileColorLabel}</p>
-            <div className="color-grid">
-              {PROFILE_COLORS.map((color) => (
-                <button
-                  key={color}
-                  className={`color-dot ${profileColor === color ? "selected" : ""}`}
-                  style={{ background: color }}
-                  onClick={() => setProfileColor(color)}
-                  aria-label={color}
-                />
-              ))}
-            </div>
+            <button className="section-toggle" onClick={() => setShowColorPicker((prev) => !prev)}>
+              {t.profileColorLabel}
+            </button>
+            {showColorPicker ? (
+              <div className="color-grid">
+                {PROFILE_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    className={`color-dot ${profileColor === color ? "selected" : ""}`}
+                    style={{ background: color }}
+                    onClick={() => setProfileColor(color)}
+                    aria-label={color}
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="profile-section">
-            <p className="section-label">{t.stabilityLabel}</p>
-            <div className="mode-grid">
-              <button
-                className={`btn-gradient ${stabilityMode === STABILITY_MODES.balanced ? "mode-active" : ""}`}
-                onClick={() => setStabilityMode(STABILITY_MODES.balanced)}
-              >
-                {t.stabilityBalanced}
-              </button>
-              <button
-                className={`btn-gradient ${stabilityMode === STABILITY_MODES.high ? "mode-active" : ""}`}
-                onClick={() => setStabilityMode(STABILITY_MODES.high)}
-              >
-                {t.stabilityHigh}
-              </button>
-              <button
-                className={`btn-gradient ${stabilityMode === STABILITY_MODES.ultra ? "mode-active" : ""}`}
-                onClick={() => setStabilityMode(STABILITY_MODES.ultra)}
-              >
-                {t.stabilityUltra}
-              </button>
-            </div>
-            <p className="admin-guide">{t.stabilityHelp}</p>
+            <button className="section-toggle" onClick={() => setShowStabilityPicker((prev) => !prev)}>
+              {t.stabilityLabel}
+            </button>
+            {showStabilityPicker ? (
+              <>
+                <div className="mode-grid">
+                  <button
+                    className={`btn-gradient ${stabilityMode === STABILITY_MODES.balanced ? "mode-active" : ""}`}
+                    onClick={() => setStabilityMode(STABILITY_MODES.balanced)}
+                  >
+                    {t.stabilityBalanced}
+                  </button>
+                  <button
+                    className={`btn-gradient ${stabilityMode === STABILITY_MODES.high ? "mode-active" : ""}`}
+                    onClick={() => setStabilityMode(STABILITY_MODES.high)}
+                  >
+                    {t.stabilityHigh}
+                  </button>
+                  <button
+                    className={`btn-gradient ${stabilityMode === STABILITY_MODES.higher ? "mode-active" : ""}`}
+                    onClick={() => setStabilityMode(STABILITY_MODES.higher)}
+                  >
+                    {t.stabilityHigher}
+                  </button>
+                  <button
+                    className={`btn-gradient ${stabilityMode === STABILITY_MODES.ultra ? "mode-active" : ""}`}
+                    onClick={() => setStabilityMode(STABILITY_MODES.ultra)}
+                  >
+                    {t.stabilityUltra}
+                  </button>
+                </div>
+                <p className="admin-guide">{t.stabilityHelp}</p>
+              </>
+            ) : null}
           </div>
 
           <button className="start-btn" onClick={saveProfile} disabled={profileSaving}>
@@ -2716,6 +2817,7 @@ const App = () => {
             </button>
           ) : null}
         </div>
+        {uiLockedOverlay}
       </div>
     );
   }
@@ -3013,45 +3115,47 @@ const App = () => {
                     <input
                       dir="ltr"
                       className="nameInput"
-                      placeholder={t.contactsSearchUid}
+                      placeholder={t.searchByNameOrUid}
                       value={searchUid}
-                      onChange={(event) => setSearchUid(event.target.value.toUpperCase())}
+                      onChange={(event) => setSearchUid(event.target.value)}
                     />
                     <button className="btn-gradient" onClick={searchByUid}>
                       {t.contactsSearchUid}
                     </button>
                   </div>
 
-                  {searchResult ? (
-                    <div className="history-item">
-                      <span className="contact-line">
-                            {searchResult.avatar ? (
-                          <img src={searchResult.avatar} alt={searchResult.name || searchResult.uid} className="mini-avatar large" />
-                        ) : (
-                          <span className="mini-avatar-emoji large">{searchResult.emoji || "🙂"}</span>
-                        )}
-                        <strong>{searchResult.name || searchResult.uid}</strong>
-                      </span>
-                      <span>{t.contactUid}: {searchResult.uid}</span>
-                      <span>{searchResult.isOnline ? t.onlineNow : `${t.lastSeen}: ${formatLastSeen(searchResult.lastSeen)}`}</span>
-                      <button className="icon-ghost-btn" onClick={() => copyUid(searchResult.uid)} title={t.copiedUid}>
-                        <ContentCopy fontSize="small" />
-                      </button>
-                      <span>{t.expiresIn}</span>
-                      <div className="mode-grid">
-                        <button
-                          className="btn-gradient"
-                          onClick={() => sendContactRequest(searchResult.uid, searchResult.profileId)}
-                          disabled={Boolean(contactsByUid[searchResult.uid]) || isBlockedLocally(searchResult.uid)}
-                        >
-                          {Boolean(contactsByUid[searchResult.uid]) ? t.requestAccepted : t.sendRequest}
-                        </button>
-                        <button className="btn-gradient" onClick={() => sendCallInvite(searchResult)}>
-                          <PhoneInTalk fontSize="small" /> {t.callNow}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
+                  {searchResults.length
+                    ? searchResults.map((row) => (
+                        <div className="history-item" key={`search_${row.uid}`}>
+                          <span className="contact-line">
+                            {row.avatar ? (
+                              <img src={row.avatar} alt={row.name || row.uid} className="mini-avatar large" />
+                            ) : (
+                              <span className="mini-avatar-emoji large">{row.emoji || "🙂"}</span>
+                            )}
+                            <strong>{row.name || row.uid}</strong>
+                          </span>
+                          <span>{t.contactUid}: {row.uid}</span>
+                          <span>{row.isOnline ? t.onlineNow : `${t.lastSeen}: ${formatLastSeen(row.lastSeen)}`}</span>
+                          <button className="icon-ghost-btn" onClick={() => copyUid(row.uid)} title={t.copiedUid}>
+                            <ContentCopy fontSize="small" />
+                          </button>
+                          <span>{t.expiresIn}</span>
+                          <div className="mode-grid">
+                            <button
+                              className="btn-gradient"
+                              onClick={() => sendContactRequest(row.uid, row.profileId)}
+                              disabled={Boolean(contactsByUid[row.uid]) || isBlockedLocally(row.uid)}
+                            >
+                              {Boolean(contactsByUid[row.uid]) ? t.requestAccepted : t.sendRequest}
+                            </button>
+                            <button className="btn-gradient" onClick={() => sendCallInvite(row)}>
+                              <PhoneInTalk fontSize="small" /> {t.callNow}
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    : null}
 
                   <p className="section-label">{t.incomingRequests}</p>
                   <div className="history-list">
@@ -3210,6 +3314,7 @@ const App = () => {
             </div>
           </div>
         ) : null}
+        {uiLockedOverlay}
       </div>
     );
   }
@@ -3226,12 +3331,20 @@ const App = () => {
             </div>
             <div
               className={`quality-pill ${
-                stabilityMode === STABILITY_MODES.ultra ? "stability-ultra" : stabilityMode === STABILITY_MODES.high ? "stability-high" : ""
+                stabilityMode === STABILITY_MODES.ultra
+                  ? "stability-ultra"
+                  : stabilityMode === STABILITY_MODES.higher
+                    ? "stability-higher"
+                    : stabilityMode === STABILITY_MODES.high
+                      ? "stability-high"
+                      : ""
               }`}
             >
               <Tune sx={{ fontSize: 12 }} />
               {stabilityMode === STABILITY_MODES.ultra
                 ? t.stabilityUltra
+                : stabilityMode === STABILITY_MODES.higher
+                  ? t.stabilityHigher
                 : stabilityMode === STABILITY_MODES.high
                   ? t.stabilityHigh
                   : t.stabilityBalanced}
@@ -3398,6 +3511,7 @@ const App = () => {
           </div>
         </div>
       ) : null}
+      {uiLockedOverlay}
     </div>
   );
 };
