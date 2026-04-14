@@ -415,6 +415,13 @@ input:-webkit-autofill:active {
   background: rgba(8, 28, 42, 0.45);
 }
 
+.embedded-modal {
+  border: 1px solid rgba(170, 214, 241, 0.22);
+  border-radius: 12px;
+  background: rgba(7, 27, 40, 0.5);
+  padding: 10px;
+}
+
 body[data-theme="light"] .settings-panel {
   background: linear-gradient(165deg, rgba(244, 251, 255, 0.96), rgba(227, 244, 255, 0.95));
   border-color: rgba(37, 89, 122, 0.24);
@@ -1046,6 +1053,7 @@ body[data-theme="dark"] .swal-modal {
   background: #0c1d2b;
   border: 1px solid rgba(160, 208, 237, 0.25);
   max-width: 350px;
+  border-radius: 18px;
 }
 
 body[data-theme="dark"] .swal-title,
@@ -1061,6 +1069,7 @@ body[data-theme="light"] .swal-modal {
   background: #f6fbff;
   border: 1px solid rgba(36, 87, 119, 0.22);
   max-width: 350px;
+  border-radius: 18px;
 }
 
 body[data-theme="light"] .swal-title,

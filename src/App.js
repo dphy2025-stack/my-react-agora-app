@@ -41,6 +41,12 @@ import {
 import PersonIcon from "@mui/icons-material/Person";
 import notificationSound from "./assets/welcomeNotif.mp3";
 import recordingSound from "./assets/Recording.mp3";
+import ringtone1 from "./assets/Ringtones/ringtone_1.mp3";
+import ringtone2 from "./assets/Ringtones/ringtone_2.mp3";
+import ringtone3 from "./assets/Ringtones/ringtone_3.mp3";
+import ringtone4 from "./assets/Ringtones/ringtone_4.mp3";
+import ringtone5 from "./assets/Ringtones/ringtone_5.mp3";
+import ringtone6 from "./assets/Ringtones/ringtone_6.mp3";
 import "./App.css";
 
 const firebaseConfig = {
@@ -98,6 +104,14 @@ const NETWORK_STATUS = {
   offline: "offline",
 };
 const INVITE_TTL_MS = 2 * 60 * 1000;
+const RINGTONES = {
+  ringtone_1: ringtone1,
+  ringtone_2: ringtone2,
+  ringtone_3: ringtone3,
+  ringtone_4: ringtone4,
+  ringtone_5: ringtone5,
+  ringtone_6: ringtone6,
+};
 
 const toRoomKey = (value) =>
   value
@@ -256,6 +270,8 @@ const App = () => {
   const [profileName, setProfileName] = useState("");
   const [profileAvatar, setProfileAvatar] = useState("");
   const [profileEmoji, setProfileEmoji] = useState("");
+  const [selectedRingtone, setSelectedRingtone] = useState("ringtone_1");
+  const [showRingtoneModal, setShowRingtoneModal] = useState(false);
   const [profileColor, setProfileColor] = useState(DEFAULT_PROFILE_COLOR);
   const [stabilityMode, setStabilityMode] = useState(STABILITY_MODES.balanced);
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -270,6 +286,10 @@ const App = () => {
   const [contactRequests, setContactRequests] = useState([]);
   const [searchUid, setSearchUid] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const [showContactsModal, setShowContactsModal] = useState(false);
+  const [showRequestsModal, setShowRequestsModal] = useState(false);
+  const [showMissedPanel, setShowMissedPanel] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [incomingInvites, setIncomingInvites] = useState([]);
   const [missedCalls, setMissedCalls] = useState([]);
   const [pendingNotifications, setPendingNotifications] = useState(0);
@@ -284,6 +304,7 @@ const App = () => {
   const [groupSearchUid, setGroupSearchUid] = useState("");
   const [groupSearchResult, setGroupSearchResult] = useState(null);
   const [pendingGroupJoin, setPendingGroupJoin] = useState(null);
+  const [outgoingCallRequest, setOutgoingCallRequest] = useState(null);
   const [isGroupCallSession, setIsGroupCallSession] = useState(false);
   const [sessionBlocked, setSessionBlocked] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -320,6 +341,11 @@ const App = () => {
   const joinSoundRef = useRef(new Audio(notificationSound));
   const recordingSoundRef = useRef(new Audio(recordingSound));
   const avatarInputRef = useRef(null);
+  const ringtonePreviewRef = useRef(null);
+  const incomingRingtoneRef = useRef(null);
+  const outgoingRequestDialogOpenRef = useRef(false);
+  const handledRoomReadyInviteRef = useRef({});
+  const groupCreatingDialogOpenRef = useRef(false);
   const activeSessionIdRef = useRef("");
   const speakingSecondsRef = useRef(0);
   const callParticipantsRef = useRef({});
@@ -573,17 +599,28 @@ const App = () => {
       actionConfirm: "Confirmation",
       confirmBlock: "Do you want to block this contact?",
       confirmRemove: "Do you want to remove this contact?",
+      callRingtone: "Call Ringtone",
+      ringtoneSaved: "Ringtone selected",
+      preview: "Preview",
+      useThis: "Use",
+      requestingCall: "Requesting call...",
+      contactsModal: "Contacts List",
+      requestsModal: "Requests List",
+      missedModal: "Missed Calls",
     },
   };
 
   const t = { ...translations.en, ...(translations[language] || {}) };
 
-  const notify = useCallback((text, icon = "info", title = "") => {
+  const notify = useCallback((text, icon = "info", title = "", options = {}) => {
     return swal({
       title: title || undefined,
       text,
       icon,
-      button: "OK",
+      button: options.autoCloseMs ? false : "OK",
+      timer: options.autoCloseMs || undefined,
+      closeOnClickOutside: !options.persistent,
+      closeOnEsc: !options.persistent,
     });
   }, []);
 
@@ -595,6 +632,42 @@ const App = () => {
       dangerMode: true,
       buttons: ["Cancel", "Yes"],
     });
+  }, []);
+
+  const pushBrowserNotification = useCallback((title, body = "") => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    try {
+      new Notification(title, { body, silent: false });
+    } catch (_error) {
+      // ignore notification errors
+    }
+  }, []);
+
+  const showGroupCreatingDialog = useCallback(() => {
+    if (groupCreatingDialogOpenRef.current) return;
+    groupCreatingDialogOpenRef.current = true;
+    swal({
+      title: t.roomCreating,
+      text: t.waitingBackend,
+      icon: "info",
+      buttons: false,
+      closeOnClickOutside: false,
+      closeOnEsc: false,
+    });
+  }, [t.roomCreating, t.waitingBackend]);
+
+  const hideGroupCreatingDialog = useCallback(() => {
+    if (!groupCreatingDialogOpenRef.current) return;
+    groupCreatingDialogOpenRef.current = false;
+    swal.close();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -644,6 +717,7 @@ const App = () => {
           setUsername(data.name || "");
           setProfileAvatar(data.avatar || "");
           setProfileEmoji(data.emoji || "");
+          setSelectedRingtone(data.ringtoneId || "ringtone_1");
           setProfileColor(data.color || DEFAULT_PROFILE_COLOR);
           const loadedMode = data.stabilityMode || STABILITY_MODES.balanced;
           setStabilityMode(loadedMode === "ultra" ? STABILITY_MODES.higher : loadedMode);
@@ -753,6 +827,7 @@ const App = () => {
       name: profileName || `Guest-${profileUid.slice(-6)}`,
       avatar: profileAvatar || "",
       emoji: profileEmoji || "",
+      ringtoneId: selectedRingtone || "ringtone_1",
       color: profileColor || DEFAULT_PROFILE_COLOR,
       gender: profileGender || "not_set",
       birthDate: profileBirthDate || "",
@@ -791,6 +866,7 @@ const App = () => {
     profileName,
     profileAvatar,
     profileEmoji,
+    selectedRingtone,
     profileColor,
     profileGender,
     profileBirthDate,
@@ -845,6 +921,19 @@ const App = () => {
         .catch(() => {});
     };
   }, [profileLoaded, profileId, profileUid]);
+
+  useEffect(() => {
+    return () => {
+      if (ringtonePreviewRef.current) {
+        ringtonePreviewRef.current.pause();
+        ringtonePreviewRef.current.currentTime = 0;
+      }
+      if (incomingRingtoneRef.current) {
+        incomingRingtoneRef.current.pause();
+        incomingRingtoneRef.current.currentTime = 0;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!profileLoaded || !profileId) return undefined;
@@ -980,6 +1069,7 @@ const App = () => {
     if (!incomingGroupInvites.length || !profileUid) return;
     const invite = incomingGroupInvites[0];
     if (!invite?.id || !invite?.lobbyId) return;
+    pushBrowserNotification(t.groupInvite, invite.adminName || invite.adminUid || "");
 
     const ask = async () => {
       const ok = await confirmDialog(`${invite.adminName || invite.adminUid}\n${t.groupInviteBody}`, t.groupInvite);
@@ -1022,6 +1112,7 @@ const App = () => {
     profileId,
     profileName,
     profileUid,
+    pushBrowserNotification,
     t.groupInvite,
     t.groupInviteBody,
     t.inLobby,
@@ -1051,16 +1142,18 @@ const App = () => {
       if (data.status !== lobbyStatusRef.current) {
         lobbyStatusRef.current = data.status;
         if (data.status === "creating") {
-          notify(t.roomCreating, "info");
+          showGroupCreatingDialog();
         }
       }
       if (data.status === "cancelled") {
+        hideGroupCreatingDialog();
         notify(t.groupClosedByAdmin, "info");
         setShowGroupLobby(false);
         setGroupLobbyId("");
         lobbyStatusRef.current = "";
       }
       if (data.status === "started" && data.roomName && data.roomPassword && !inCall) {
+        hideGroupCreatingDialog();
         setShowGroupLobby(false);
         setRoomMode("join");
         setRoomName(data.roomName);
@@ -1075,7 +1168,7 @@ const App = () => {
       }
     });
     return () => unsubscribe();
-  }, [groupLobbyId, inCall, notify, t.groupClosedByAdmin, t.roomCreating]);
+  }, [groupLobbyId, hideGroupCreatingDialog, inCall, notify, showGroupCreatingDialog, t.groupClosedByAdmin]);
 
   useEffect(() => {
     if (!profileLoaded || !profileUid) return undefined;
@@ -1107,6 +1200,7 @@ const App = () => {
       name: profileName.trim() || username.trim(),
       avatar: profileAvatar || "",
       emoji: profileEmoji || "",
+      ringtoneId: selectedRingtone || "ringtone_1",
       color: profileColor || DEFAULT_PROFILE_COLOR,
       stabilityMode,
       isAnonymous,
@@ -1117,6 +1211,7 @@ const App = () => {
     [
       isAnonymous,
       profileEmoji,
+      selectedRingtone,
       profileAvatar,
       profileBirthDate,
       profileColor,
@@ -1812,7 +1907,7 @@ const App = () => {
         by: userUID || null,
         at: Date.now(),
       });
-      await notify(t.recordingStopped, "info");
+      await notify(t.recordingStopped, "info", "", { autoCloseMs: 2000 });
       return;
     }
 
@@ -1844,7 +1939,7 @@ const App = () => {
     recorder.start();
     mediaRecorderRef.current = recorder;
     setIsRecording(true);
-    await notify(t.recordingStarted, "success");
+    await notify(t.recordingStarted, "success", "", { autoCloseMs: 2000 });
   }, [activeRoomKey, isRecording, notify, t.recordingStarted, t.recordingStopped, userUID]);
 
   const finalizeCallHistory = useCallback(async () => {
@@ -2005,6 +2100,30 @@ const App = () => {
     await notify(t.missedCleared, "success");
   }, [notify, profileUid, t.missedCleared]);
 
+  const previewRingtone = useCallback((ringtoneId) => {
+    const src = RINGTONES[ringtoneId];
+    if (!src) return;
+    if (ringtonePreviewRef.current) {
+      ringtonePreviewRef.current.pause();
+      ringtonePreviewRef.current.currentTime = 0;
+    }
+    const audio = new Audio(src);
+    audio.volume = 0.9;
+    audio.play().catch(() => {});
+    ringtonePreviewRef.current = audio;
+  }, []);
+
+  const selectRingtone = useCallback(
+    async (ringtoneId) => {
+      setSelectedRingtone(ringtoneId);
+      if (profileId) {
+        await update(ref(db, `profiles/${profileId}`), { ringtoneId }).catch(() => {});
+      }
+      await notify(t.ringtoneSaved, "success", "", { autoCloseMs: 1500 });
+    },
+    [notify, profileId, t.ringtoneSaved]
+  );
+
   const openCallUserInfo = useCallback(
     async (rawUser) => {
       const base = normalizeCallUser(rawUser);
@@ -2132,11 +2251,12 @@ const App = () => {
     } else {
       await remove(ref(db, `groupLobbies/${groupLobbyId}/members/${profileUid}`)).catch(() => {});
     }
+    hideGroupCreatingDialog();
     setShowGroupLobby(false);
     setGroupLobbyId("");
     setGroupLobbyMembers({});
     setGroupLobbyMeta(null);
-  }, [confirmDialog, groupLobbyId, groupLobbyMeta?.adminUid, profileUid, t.groupLobbyTitle, t.leaveLobbyConfirm]);
+  }, [confirmDialog, groupLobbyId, groupLobbyMeta?.adminUid, hideGroupCreatingDialog, profileUid, t.groupLobbyTitle, t.leaveLobbyConfirm]);
 
   const startGroupCallFromLobby = useCallback(async () => {
     if (!groupLobbyId || !profileUid) return;
@@ -2155,7 +2275,7 @@ const App = () => {
       roomPassword: password,
       creatingAt: Date.now(),
     });
-    await notify(t.roomCreating, "info");
+    showGroupCreatingDialog();
 
     setShowGroupLobby(false);
     setRoomMode("create");
@@ -2170,6 +2290,7 @@ const App = () => {
     });
     if (!ok) {
       await update(ref(db, `groupLobbies/${groupLobbyId}`), { status: "waiting" }).catch(() => {});
+      hideGroupCreatingDialog();
       await notify(t.roomCreateFailed, "error");
       return;
     }
@@ -2181,12 +2302,13 @@ const App = () => {
     groupLobbyId,
     groupLobbyMembers,
     groupLobbyMeta?.adminUid,
+    hideGroupCreatingDialog,
     joinCallInternal,
     notify,
     profileUid,
     t.roomCreateFailed,
-    t.roomCreating,
     t.waitingMembers,
+    showGroupCreatingDialog,
   ]);
 
   const muteMemberInRoom = useCallback(
@@ -2238,6 +2360,7 @@ const App = () => {
     setUsername("");
     setProfileAvatar("");
     setProfileEmoji("");
+    setSelectedRingtone("ringtone_1");
     setProfileColor(DEFAULT_PROFILE_COLOR);
     setStabilityMode(STABILITY_MODES.balanced);
     setIsAnonymous(false);
@@ -2319,22 +2442,42 @@ const App = () => {
     [joinCallInternal]
   );
 
+  const stopIncomingRingtone = useCallback(() => {
+    if (!incomingRingtoneRef.current) return;
+    incomingRingtoneRef.current.pause();
+    incomingRingtoneRef.current.currentTime = 0;
+    incomingRingtoneRef.current = null;
+  }, []);
+
+  const playIncomingRingtone = useCallback(() => {
+    stopIncomingRingtone();
+    const source = RINGTONES[selectedRingtone] || RINGTONES.ringtone_1;
+    const audio = new Audio(source);
+    audio.loop = true;
+    audio.volume = 0.9;
+    audio.play().catch(() => {});
+    incomingRingtoneRef.current = audio;
+  }, [selectedRingtone, stopIncomingRingtone]);
+
   useEffect(() => {
     if (!incomingInvites.length) return;
     const invite = incomingInvites[0];
     if (!invite?.id) return;
 
     const ask = async () => {
+      playIncomingRingtone();
+      pushBrowserNotification(t.incomingCall, invite.fromName || invite.fromUid || "");
       const accepted = await confirmDialog(
         `${invite.fromName || invite.fromUid}\n${t.incomingCallBody}`,
         t.incomingCall
       );
+      stopIncomingRingtone();
       if (accepted) {
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
           status: CONTACT_REQUEST_STATUS.accepted,
           respondedAt: Date.now(),
+          acceptedBy: profileUid,
         });
-        triggerJoinWith("join", invite.roomName, invite.roomPassword);
       } else {
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
           status: CONTACT_REQUEST_STATUS.declined,
@@ -2344,7 +2487,64 @@ const App = () => {
     };
 
     ask();
-  }, [confirmDialog, incomingInvites, profileUid, t.incomingCall, t.incomingCallBody, triggerJoinWith]);
+    return () => stopIncomingRingtone();
+  }, [
+    confirmDialog,
+    incomingInvites,
+    playIncomingRingtone,
+    profileUid,
+    pushBrowserNotification,
+    stopIncomingRingtone,
+    t.incomingCall,
+    t.incomingCallBody,
+  ]);
+
+  useEffect(() => {
+    if (!profileUid) return undefined;
+    const inviteRef = ref(db, `invites/${profileUid}`);
+    const unsubscribe = onValue(inviteRef, (snapshot) => {
+      const now = Date.now();
+      const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...value }));
+      const roomReadyInvite = rows.find(
+        (item) =>
+          item.status === "room_ready" &&
+          item.roomName &&
+          item.roomPassword &&
+          (item.toUid === profileUid || item.acceptedBy === profileUid) &&
+          now - Number(item.roomCreatedAt || item.respondedAt || item.createdAt || 0) <= INVITE_TTL_MS &&
+          !item.consumedAt
+      );
+      if (!roomReadyInvite) return;
+      if (handledRoomReadyInviteRef.current[roomReadyInvite.id]) return;
+      handledRoomReadyInviteRef.current[roomReadyInvite.id] = true;
+
+      const tryJoin = async (attempt = 0) => {
+        if (inCall) return;
+        const ok = await joinCallInternal({
+          mode: "join",
+          roomName: roomReadyInvite.roomName,
+          roomPassword: roomReadyInvite.roomPassword,
+          allowFromLobbyStart: true,
+        });
+        if (ok) return;
+        if (attempt < 4) {
+          setTimeout(() => {
+            tryJoin(attempt + 1);
+          }, 1800);
+        }
+      };
+
+      update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
+        consumedAt: Date.now(),
+        consumedBy: profileUid,
+      }).catch(() => {});
+
+      setTimeout(() => {
+        tryJoin(0);
+      }, 5000);
+    });
+    return () => unsubscribe();
+  }, [inCall, joinCallInternal, profileUid]);
 
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
@@ -2407,7 +2607,7 @@ const App = () => {
         createdAt: Date.now(),
         expiresAt: Date.now() + INVITE_TTL_MS,
       });
-      await notify(t.requestSent, "success");
+      await notify(t.requestSent, "success", "", { autoCloseMs: 2000 });
     },
     [
       isBlockedByRemote,
@@ -2471,7 +2671,7 @@ const App = () => {
         status: CONTACT_REQUEST_STATUS.accepted,
         respondedAt: Date.now(),
       });
-      await notify(t.requestAccepted, "success");
+      await notify(t.requestAccepted, "success", "", { autoCloseMs: 2000 });
     },
     [addContactPair, notify, profileUid, t.requestAccepted]
   );
@@ -2482,7 +2682,7 @@ const App = () => {
         status: CONTACT_REQUEST_STATUS.declined,
         respondedAt: Date.now(),
       });
-      await notify(t.requestDeclined, "info");
+      await notify(t.requestDeclined, "info", "", { autoCloseMs: 2000 });
     },
     [notify, profileUid, t.requestDeclined]
   );
@@ -2557,22 +2757,34 @@ const App = () => {
         return false;
       }
 
-      const room = randomRoomValue("room");
-      const password = randomRoomValue("pw");
       const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await set(ref(db, `invites/${target.uid}/${inviteId}`), {
         fromUid: profileUid,
         fromProfileId: profileId,
         fromName: profileName || username || profileUid,
-        roomName: room,
-        roomPassword: password,
+        toUid: target.uid,
+        toProfileId: target.profileId || "",
         status: CONTACT_REQUEST_STATUS.pending,
         createdAt: Date.now(),
         expiresAt: Date.now() + INVITE_TTL_MS,
       });
 
-      await notify(t.callSent, "success");
-      triggerJoinWith("create", room, password);
+      setOutgoingCallRequest({
+        targetUid: target.uid,
+        inviteId,
+        requestedAt: Date.now(),
+      });
+      if (!outgoingRequestDialogOpenRef.current) {
+        outgoingRequestDialogOpenRef.current = true;
+        swal({
+          title: t.requestingCall,
+          text: t.expiresIn,
+          icon: "info",
+          buttons: false,
+          closeOnClickOutside: false,
+          closeOnEsc: false,
+        });
+      }
       return true;
     },
     [
@@ -2587,10 +2799,10 @@ const App = () => {
       t.blockedUserCannotCall,
       t.blockedYou,
       t.busyInLobby,
-      t.callSent,
       t.cannotCallNow,
       t.callUnavailableOffline,
-      triggerJoinWith,
+      t.expiresIn,
+      t.requestingCall,
       username,
       writeMissedCall,
     ]
@@ -2602,6 +2814,56 @@ const App = () => {
     },
     [sendCallInvite]
   );
+
+  useEffect(() => {
+    if (!outgoingCallRequest?.targetUid || !outgoingCallRequest?.inviteId || !profileUid) return undefined;
+    const inviteRef = ref(db, `invites/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`);
+    let processing = false;
+    const unsubscribe = onValue(inviteRef, async (snapshot) => {
+      const item = snapshot.val();
+      if (!item) {
+        if (outgoingRequestDialogOpenRef.current) {
+          swal.close();
+          outgoingRequestDialogOpenRef.current = false;
+        }
+        setOutgoingCallRequest(null);
+        return;
+      }
+      const expired = Date.now() - Number(item.createdAt || 0) > INVITE_TTL_MS;
+      if (expired && item.status === CONTACT_REQUEST_STATUS.pending) {
+        await update(inviteRef, { status: "expired", respondedAt: Date.now() }).catch(() => {});
+        return;
+      }
+      if (item.status === CONTACT_REQUEST_STATUS.declined || item.status === "expired") {
+        if (outgoingRequestDialogOpenRef.current) {
+          swal.close();
+          outgoingRequestDialogOpenRef.current = false;
+        }
+        setOutgoingCallRequest(null);
+        await notify(t.requestExpired, "info", "", { autoCloseMs: 2000 });
+        return;
+      }
+      if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
+        processing = true;
+        const room = randomRoomValue("room");
+        const password = randomRoomValue("pw");
+        await update(inviteRef, {
+          status: "room_ready",
+          roomName: room,
+          roomPassword: password,
+          roomCreatedBy: profileUid,
+          roomCreatedAt: Date.now(),
+        }).catch(() => {});
+        if (outgoingRequestDialogOpenRef.current) {
+          swal.close();
+          outgoingRequestDialogOpenRef.current = false;
+        }
+        setOutgoingCallRequest(null);
+        triggerJoinWith("create", room, password);
+      }
+    });
+    return () => unsubscribe();
+  }, [notify, outgoingCallRequest, profileUid, t.requestExpired, triggerJoinWith]);
 
   const addUserFromCall = useCallback(
     async (_agoraUid, rawUser) => {
@@ -2803,6 +3065,10 @@ const App = () => {
             ) : null}
           </div>
 
+          <button className="btn-gradient" onClick={() => setShowRingtoneModal(true)}>
+            {t.callRingtone}
+          </button>
+
           <button className="start-btn" onClick={saveProfile} disabled={profileSaving}>
             {profileSaving ? t.waitingBackend : t.profileSave}
           </button>
@@ -2817,6 +3083,30 @@ const App = () => {
             </button>
           ) : null}
         </div>
+        {showRingtoneModal ? (
+          <div className="settings-overlay" onClick={() => setShowRingtoneModal(false)}>
+            <div className="settings-panel small-modal" onClick={(event) => event.stopPropagation()}>
+              <h3>{t.callRingtone}</h3>
+              <div className="history-list">
+                {Object.keys(RINGTONES).map((id) => (
+                  <div className="history-item" key={id}>
+                    <strong>{id.replace("_", " ").toUpperCase()}</strong>
+                    <div className="mode-grid">
+                      <button className="btn-gradient" onClick={() => previewRingtone(id)}>{t.preview}</button>
+                      <button
+                        className={`btn-gradient ${selectedRingtone === id ? "mode-active" : ""}`}
+                        onClick={() => selectRingtone(id)}
+                      >
+                        {t.useThis}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button className="btn-gradient" onClick={() => setShowRingtoneModal(false)}>{t.adminClose}</button>
+            </div>
+          </div>
+        ) : null}
         {uiLockedOverlay}
       </div>
     );
@@ -3017,9 +3307,6 @@ const App = () => {
                 <strong>{t.settingsHeader}</strong>
               </div>
               <div className="settings-tabs">
-                <button className={`btn-gradient ${settingsTab === "backend" ? "mode-active" : ""}`} onClick={() => setSettingsTab("backend")}>
-                  <CloudDone fontSize="small" /> {t.settingsBackend}
-                </button>
                 <button className={`btn-gradient ${settingsTab === "profile" ? "mode-active" : ""}`} onClick={() => setSettingsTab("profile")}>
                   <Person fontSize="small" /> {t.settingsProfile}
                 </button>
@@ -3032,21 +3319,10 @@ const App = () => {
                 <button className={`btn-gradient ${settingsTab === "about" ? "mode-active" : ""}`} onClick={() => setSettingsTab("about")}>
                   <Info fontSize="small" /> {t.settingsAbout}
                 </button>
+                <button className={`btn-gradient ${settingsTab === "backend" ? "mode-active" : ""}`} onClick={() => setSettingsTab("backend")}>
+                  <CloudDone fontSize="small" /> {t.settingsBackend}
+                </button>
               </div>
-
-              {settingsTab === "backend" ? (
-                <div className="settings-body">
-                  <input
-                    dir="ltr"
-                    className="nameInput"
-                    placeholder={t.adminBackendLabel}
-                    value={adminBackendUrl}
-                    onChange={(event) => setAdminBackendUrl(event.target.value)}
-                  />
-                  <button className="start-btn" onClick={saveAdminBackend}>{t.adminSave}</button>
-                  <p className="admin-guide">{t.adminGuide}</p>
-                </div>
-              ) : null}
 
               {settingsTab === "profile" ? (
                 <div className="settings-body">
@@ -3075,41 +3351,59 @@ const App = () => {
                       <NotificationsOff fontSize="small" /> {t.clearMissedCalls}
                     </button>
                   </div>
-                  <p className="section-label">{t.callHistory}</p>
-                  <div className="history-list">
-                    {profileHistory.length ? (
-                      profileHistory.slice(0, 12).map((item) => (
-                        <div className="history-item" key={item.id}>
-                          <strong>{t.room}: {item.roomName || "-"}</strong>
-                          <span>{item.type || t.historyAdvanced}</span>
-                          <span>{new Date(item.startedAt || Date.now()).toLocaleString()}</span>
-                          <span>{formatDuration(item.durationSeconds)}</span>
-                          <span>{t.connectionQuality}: {item.qualityAtEnd || "-"}</span>
-                          <span>{t.participants}: {(item.participants || []).join(", ") || "-"}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="admin-guide">{t.noHistory}</p>
-                    )}
-                  </div>
-                  <p className="section-label">{t.missedCallsTitle}</p>
-                  <div className="history-list">
-                    {missedCalls.length ? (
-                      missedCalls.slice(0, 12).map((item) => (
-                        <div className="history-item" key={`missed_${item.id}`}>
-                          <strong>{t.missedBy}: {item.fromName || item.fromUid || "-"}</strong>
-                          <span>{new Date(item.at || Date.now()).toLocaleString()}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="admin-guide">{t.noHistory}</p>
-                    )}
-                  </div>
+                  <button className="section-toggle" onClick={() => setShowHistoryPanel((prev) => !prev)}>
+                    {t.callHistory}
+                  </button>
+                  {showHistoryPanel ? (
+                    <div className="embedded-modal">
+                      <div className="history-list">
+                        {profileHistory.length ? (
+                          profileHistory.slice(0, 12).map((item) => (
+                            <div className="history-item" key={item.id}>
+                              <strong>{t.room}: {item.roomName || "-"}</strong>
+                              <span>{item.type || t.historyAdvanced}</span>
+                              <span>{new Date(item.startedAt || Date.now()).toLocaleString()}</span>
+                              <span>{formatDuration(item.durationSeconds)}</span>
+                              <span>{t.connectionQuality}: {item.qualityAtEnd || "-"}</span>
+                              <span>{t.participants}: {(item.participants || []).join(", ") || "-"}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="admin-guide">{t.noHistory}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                  <button className="section-toggle" onClick={() => setShowMissedPanel((prev) => !prev)}>
+                    {t.missedModal}
+                  </button>
+                  {showMissedPanel ? (
+                    <div className="embedded-modal">
+                      <div className="history-list">
+                        {missedCalls.length ? (
+                          missedCalls.slice(0, 25).map((item) => (
+                            <div className="history-item" key={`missed_inpanel_${item.id}`}>
+                              <strong>{t.missedBy}: {item.fromName || item.fromUid || "-"}</strong>
+                              <span>{new Date(item.at || Date.now()).toLocaleString()}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="admin-guide">{t.noHistory}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
               {settingsTab === "contacts" ? (
                 <div className="settings-body">
+                  <button className="section-toggle" onClick={() => setShowContactsModal((prev) => !prev)}>
+                    {t.contactsModal}
+                  </button>
+                  <button className="section-toggle" onClick={() => setShowRequestsModal((prev) => !prev)}>
+                    {t.requestsModal}
+                  </button>
                   <p className="section-label">{t.contactsTitle}</p>
                   <div className="search-row">
                     <input
@@ -3157,8 +3451,10 @@ const App = () => {
                       ))
                     : null}
 
-                  <p className="section-label">{t.incomingRequests}</p>
-                  <div className="history-list">
+                  {showRequestsModal ? (
+                    <div className="embedded-modal">
+                      <p className="section-label">{t.incomingRequests}</p>
+                      <div className="history-list">
                     {contactRequests.length ? (
                       contactRequests.map((request) => (
                         <div className="history-item" key={request.id}>
@@ -3185,10 +3481,14 @@ const App = () => {
                     ) : (
                       <p className="admin-guide">{t.noRequests}</p>
                     )}
-                  </div>
+                      </div>
+                    </div>
+                  ) : null}
 
-                  <p className="section-label">{t.contactsTitle}</p>
-                  <div className="history-list">
+                  {showContactsModal ? (
+                    <div className="embedded-modal">
+                      <p className="section-label">{t.contactsTitle}</p>
+                      <div className="history-list">
                     {Object.values(contacts).length ? (
                       Object.values(contacts).map((contact) => {
                         const presence = contactsPresence[contact.uid] || {};
@@ -3234,7 +3534,9 @@ const App = () => {
                     ) : (
                       <p className="admin-guide">{t.noContacts}</p>
                     )}
-                  </div>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <p className="section-label">{t.blockContact}</p>
                   <div className="history-list">
@@ -3310,10 +3612,25 @@ const App = () => {
                 </div>
               ) : null}
 
+              {settingsTab === "backend" ? (
+                <div className="settings-body">
+                  <input
+                    dir="ltr"
+                    className="nameInput"
+                    placeholder={t.adminBackendLabel}
+                    value={adminBackendUrl}
+                    onChange={(event) => setAdminBackendUrl(event.target.value)}
+                  />
+                  <button className="start-btn" onClick={saveAdminBackend}>{t.adminSave}</button>
+                  <p className="admin-guide">{t.adminGuide}</p>
+                </div>
+              ) : null}
+
               <button className="btn-gradient" onClick={() => setShowSettingsPanel(false)}>{t.adminClose}</button>
             </div>
           </div>
         ) : null}
+
         {uiLockedOverlay}
       </div>
     );
@@ -3517,4 +3834,3 @@ const App = () => {
 };
 
 export default App;
-
