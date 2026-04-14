@@ -67,6 +67,14 @@ const cleanupRoomIfExpired = (roomName) => {
   }
 };
 
+const cleanupAllExpiredRooms = () => {
+  for (const [roomName, room] of rooms.entries()) {
+    if (isRoomExpired(room)) {
+      rooms.delete(roomName);
+    }
+  }
+};
+
 const buildToken = (roomName, uid) => {
   const expiresAt = nowInSeconds() + ROOM_TTL_SECONDS;
 
@@ -167,3 +175,5 @@ app.listen(PORT, () => {
   console.log(`Env source: ${fs.existsSync(envPath) ? envPath : "process.env"}`);
   console.log(`Agora config loaded: ${Boolean(APP_ID && APP_CERTIFICATE)}`);
 });
+
+setInterval(cleanupAllExpiredRooms, 5 * 60 * 1000);
