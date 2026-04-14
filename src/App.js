@@ -104,6 +104,8 @@ const NETWORK_STATUS = {
   offline: "offline",
 };
 const INVITE_TTL_MS = 2 * 60 * 1000;
+const SPEAKING_LEVEL_THRESHOLD = 7;
+const CALL_USER_STALE_MS = 90 * 1000;
 const RINGTONES = {
   ringtone_1: ringtone1,
   ringtone_2: ringtone2,
@@ -344,6 +346,7 @@ const App = () => {
   const ringtonePreviewRef = useRef(null);
   const incomingRingtoneRef = useRef(null);
   const outgoingRequestDialogOpenRef = useRef(false);
+  const incomingJoinDialogOpenRef = useRef(false);
   const handledRoomReadyInviteRef = useRef({});
   const groupCreatingDialogOpenRef = useRef(false);
   const activeSessionIdRef = useRef("");
@@ -1719,9 +1722,9 @@ const App = () => {
         const next = {};
         let localSpeakingNow = false;
         levels.forEach((item) => {
-          next[item.uid] = (item.level || 0) > 3;
+          next[item.uid] = (item.level || 0) >= SPEAKING_LEVEL_THRESHOLD;
           if (item.uid === joinedUid || item.uid === 0) {
-            localSpeakingNow = (item.level || 0) > 3;
+            localSpeakingNow = (item.level || 0) >= SPEAKING_LEVEL_THRESHOLD;
           }
         });
         setSpeakingUsers((prev) => ({ ...prev, ...next }));
@@ -2429,11 +2432,11 @@ const App = () => {
   );
 
   const triggerJoinWith = useCallback(
-    (mode, nextRoomName, nextRoomPassword) => {
+    async (mode, nextRoomName, nextRoomPassword) => {
       setRoomMode(mode);
       setRoomName(nextRoomName);
       setRoomPassword(nextRoomPassword);
-      joinCallInternal({
+      return joinCallInternal({
         mode,
         roomName: nextRoomName,
         roomPassword: nextRoomPassword,
@@ -2478,6 +2481,17 @@ const App = () => {
           respondedAt: Date.now(),
           acceptedBy: profileUid,
         });
+        if (!incomingJoinDialogOpenRef.current) {
+          incomingJoinDialogOpenRef.current = true;
+          swal({
+            title: t.incomingCall,
+            text: t.waitingBackend,
+            icon: "info",
+            buttons: false,
+            closeOnClickOutside: false,
+            closeOnEsc: false,
+          });
+        }
       } else {
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
           status: CONTACT_REQUEST_STATUS.declined,
@@ -2497,6 +2511,7 @@ const App = () => {
     stopIncomingRingtone,
     t.incomingCall,
     t.incomingCallBody,
+    t.waitingBackend,
   ]);
 
   useEffect(() => {
@@ -2518,19 +2533,20 @@ const App = () => {
       if (handledRoomReadyInviteRef.current[roomReadyInvite.id]) return;
       handledRoomReadyInviteRef.current[roomReadyInvite.id] = true;
 
-      const tryJoin = async (attempt = 0) => {
+      const tryJoinOnce = async () => {
         if (inCall) return;
-        const ok = await joinCallInternal({
+        const joined = await joinCallInternal({
           mode: "join",
           roomName: roomReadyInvite.roomName,
           roomPassword: roomReadyInvite.roomPassword,
           allowFromLobbyStart: true,
         });
-        if (ok) return;
-        if (attempt < 4) {
-          setTimeout(() => {
-            tryJoin(attempt + 1);
-          }, 1800);
+        if (incomingJoinDialogOpenRef.current) {
+          swal.close();
+          incomingJoinDialogOpenRef.current = false;
+        }
+        if (!joined) {
+          return;
         }
       };
 
@@ -2540,7 +2556,7 @@ const App = () => {
       }).catch(() => {});
 
       setTimeout(() => {
-        tryJoin(0);
+        tryJoinOnce();
       }, 5000);
     });
     return () => unsubscribe();
@@ -2571,6 +2587,11 @@ const App = () => {
     const single = snapshot.val();
     setSearchResults(single ? [single] : []);
   }, [notify, profileName, profileUid, searchUid, t.cannotAddSelf, t.userNotFound]);
+
+  useEffect(() => {
+    if (searchUid.trim()) return;
+    setSearchResults([]);
+  }, [searchUid]);
 
   const sendContactRequest = useCallback(
     async (targetUid, targetProfileId) => {
@@ -2854,16 +2875,29 @@ const App = () => {
           roomCreatedBy: profileUid,
           roomCreatedAt: Date.now(),
         }).catch(() => {});
+        const joined = await triggerJoinWith("create", room, password);
         if (outgoingRequestDialogOpenRef.current) {
           swal.close();
           outgoingRequestDialogOpenRef.current = false;
         }
+        if (!joined) {
+          setOutgoingCallRequest(null);
+          return;
+        }
         setOutgoingCallRequest(null);
-        triggerJoinWith("create", room, password);
       }
     });
     return () => unsubscribe();
   }, [notify, outgoingCallRequest, profileUid, t.requestExpired, triggerJoinWith]);
+
+  useEffect(() => {
+    if (!inCall) return;
+    if (outgoingRequestDialogOpenRef.current || incomingJoinDialogOpenRef.current) {
+      swal.close();
+      outgoingRequestDialogOpenRef.current = false;
+      incomingJoinDialogOpenRef.current = false;
+    }
+  }, [inCall]);
 
   const addUserFromCall = useCallback(
     async (_agoraUid, rawUser) => {
@@ -3694,8 +3728,8 @@ const App = () => {
               const isSelf = Number(uid) === Number(userUID);
               const isSpeaking = Boolean(speakingUsers[uid]);
               const shouldShowSpeaking = isSpeaking && !(isSelf && isMuted);
-              const stale = Date.now() - Number(userInfo.lastSeen || 0) > 18000;
-              const resolvedNetwork = stale ? NETWORK_STATUS.offline : userInfo.networkStatus;
+              const stale = Date.now() - Number(userInfo.lastSeen || 0) > CALL_USER_STALE_MS;
+              const resolvedNetwork = stale ? NETWORK_STATUS.weak : userInfo.networkStatus;
               const canAddContact = !isSelf && userInfo.uid && !contactsByUid[userInfo.uid];
               const canAdminMute = isRoomAdmin && !isSelf && userInfo.uid;
               const baseColor = userInfo.color || DEFAULT_PROFILE_COLOR;
