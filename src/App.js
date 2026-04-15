@@ -2565,30 +2565,11 @@ const App = () => {
       );
       stopIncomingRingtone();
       if (accepted) {
-        const room = randomRoomValue("room");
-        const password = randomRoomValue("pw");
-        const roomPayload = {
-          status: "room_ready",
-          roomName: room,
-          roomPassword: password,
-          roomCreatedBy: profileUid,
-          roomCreatedAt: Date.now(),
+        await update(ref(db, `invites/${profileUid}/${invite.id}`), {
+          status: CONTACT_REQUEST_STATUS.accepted,
           respondedAt: Date.now(),
           acceptedBy: profileUid,
-        };
-        await update(ref(db, `invites/${profileUid}/${invite.id}`), roomPayload);
-        if (invite.fromUid) {
-          await set(ref(db, `invites/${invite.fromUid}/${invite.id}`), {
-            fromUid: profileUid,
-            fromProfileId: profileId,
-            fromName: profileName || username || profileUid,
-            toUid: invite.fromUid,
-            toProfileId: invite.fromProfileId || "",
-            createdAt: invite.createdAt || Date.now(),
-            expiresAt: invite.expiresAt || Date.now() + INVITE_TTL_MS,
-            ...roomPayload,
-          }).catch(() => {});
-        }
+        });
         if (!incomingJoinDialogOpenRef.current) {
           incomingJoinDialogOpenRef.current = true;
           swal({
@@ -2646,6 +2627,22 @@ const App = () => {
 
       const tryJoinOnce = async () => {
         if (inCall) return;
+        if (!incomingJoinDialogOpenRef.current) {
+          incomingJoinDialogOpenRef.current = true;
+          swal({
+            title: t.incomingCall,
+            text: t.waitingBackend,
+            icon: "info",
+            buttons: false,
+            closeOnClickOutside: false,
+            closeOnEsc: false,
+          });
+        }
+        const availableAfter = Number(roomReadyInvite.availableAfter || roomReadyInvite.roomCreatedAt || 0);
+        const joinDelay = Math.max(0, availableAfter - Date.now());
+        if (joinDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, joinDelay));
+        }
         const joined = await joinCallInternal({
           mode: "join",
           roomName: roomReadyInvite.roomName,
@@ -2657,21 +2654,21 @@ const App = () => {
           incomingJoinDialogOpenRef.current = false;
         }
         if (!joined) {
+          delete handledRoomReadyInviteRef.current[roomReadyInvite.id];
           return;
         }
+        update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
+          consumedAt: Date.now(),
+          consumedBy: profileUid,
+        }).catch(() => {});
       };
-
-      update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
-        consumedAt: Date.now(),
-        consumedBy: profileUid,
-      }).catch(() => {});
 
       setTimeout(() => {
         tryJoinOnce();
-      }, 5000);
+      }, 100);
     });
     return () => unsubscribe();
-  }, [inCall, joinCallInternal, profileUid]);
+  }, [inCall, joinCallInternal, profileUid, t.incomingCall, t.waitingBackend]);
 
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
@@ -3011,13 +3008,6 @@ const App = () => {
         });
         const room = randomRoomValue("room");
         const password = randomRoomValue("pw");
-        await update(inviteRef, {
-          status: "room_ready",
-          roomName: room,
-          roomPassword: password,
-          roomCreatedBy: profileUid,
-          roomCreatedAt: Date.now(),
-        }).catch(() => {});
         const joined = await triggerJoinWith("create", room, password);
         if (outgoingRequestDialogOpenRef.current) {
           swal.close();
@@ -3027,6 +3017,15 @@ const App = () => {
           setOutgoingCallRequest(null);
           return;
         }
+        await update(inviteRef, {
+          status: "room_ready",
+          roomName: room,
+          roomPassword: password,
+          roomCreatedBy: profileUid,
+          roomCreatedAt: Date.now(),
+          availableAfter: Date.now() + 2000,
+          respondedAt: Date.now(),
+        }).catch(() => {});
         setOutgoingCallRequest(null);
       }
       if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
