@@ -2638,6 +2638,8 @@ const App = () => {
       );
       stopIncomingRingtone();
       if (accepted) {
+        if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
+        showCallProgressDialog(t.incomingCall, t.waitingBackend);
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
           status: CONTACT_REQUEST_STATUS.accepted,
           respondedAt: Date.now(),
@@ -2657,6 +2659,7 @@ const App = () => {
     return () => stopIncomingRingtone();
   }, [
     confirmDialog,
+    hideCallProgressDialog,
     incomingInvites,
     playIncomingRingtone,
     profileId,
@@ -2666,7 +2669,9 @@ const App = () => {
     stopIncomingRingtone,
     t.incomingCall,
     t.incomingCallBody,
+    t.waitingBackend,
     username,
+    showCallProgressDialog,
   ]);
 
   useEffect(() => {
@@ -3069,8 +3074,8 @@ const App = () => {
         const password = randomRoomValue("pw");
         const joined = await triggerJoinWith("create", room, password);
         if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-        hideCallProgressDialog();
         if (!joined) {
+          hideCallProgressDialog();
           setOutgoingCallRequest(null);
           return;
         }
@@ -3090,8 +3095,8 @@ const App = () => {
         showCallProgressDialog(t.roomCreating, t.waitingBackend);
         const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
         if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-        hideCallProgressDialog();
         if (!joined) {
+          hideCallProgressDialog();
           setOutgoingCallRequest(null);
           return;
         }
@@ -3103,11 +3108,9 @@ const App = () => {
 
   useEffect(() => {
     if (!inCall) return;
-    if (outgoingRequestDialogOpenRef.current || incomingJoinDialogOpenRef.current) {
-      swal.close();
-      outgoingRequestDialogOpenRef.current = false;
-      incomingJoinDialogOpenRef.current = false;
-    }
+    swal.close();
+    outgoingRequestDialogOpenRef.current = false;
+    incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
   }, [hideCallProgressDialog, inCall]);
 
