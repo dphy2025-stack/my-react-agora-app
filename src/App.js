@@ -47,6 +47,7 @@ import ringtone3 from "./assets/Ringtones/ringtone_3.mp3";
 import ringtone4 from "./assets/Ringtones/ringtone_4.mp3";
 import ringtone5 from "./assets/Ringtones/ringtone_5.mp3";
 import ringtone6 from "./assets/Ringtones/ringtone_6.mp3";
+import appLogo from "./assets/logo image/ChatGPT Image Apr 15, 2026, 02_26_15 PM.png";
 import "./App.css";
 
 const firebaseConfig = {
@@ -62,9 +63,12 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 const APP_ID = process.env.REACT_APP_AGORA_APP_ID || "717d9262657d4caab56f3d8a9a7b2089";
+const APP_DISPLAY_NAME = "Happy Talk";
 const ADMIN_BACKEND_STORAGE_KEY = "voice_call_admin_backend_url";
 const PROFILE_STORAGE_KEY = "voice_call_profile_id";
+const BUTTON_HOVER_COLOR_STORAGE_KEY = "happy_talk_button_hover_color";
 const LOCAL_BACKEND_URL = "http://localhost:5000";
+const PROFILE_LOADING_MIN_MS = 3000;
 const ACTIVE_SESSION_TTL_MS = 20 * 1000;
 const DEFAULT_PROFILE_COLOR = "#10b981";
 const PROFILE_COLORS = [
@@ -280,6 +284,9 @@ const App = () => {
   const [selectedRingtone, setSelectedRingtone] = useState("ringtone_1");
   const [showRingtoneModal, setShowRingtoneModal] = useState(false);
   const [profileColor, setProfileColor] = useState(DEFAULT_PROFILE_COLOR);
+  const [buttonHoverColor, setButtonHoverColor] = useState(
+    () => localStorage.getItem(BUTTON_HOVER_COLOR_STORAGE_KEY) || "#13b57f"
+  );
   const [stabilityMode, setStabilityMode] = useState(STABILITY_MODES.balanced);
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [profileGender, setProfileGender] = useState("not_set");
@@ -409,8 +416,8 @@ const App = () => {
       waitingBackend: "انتظار برای پاسخ بک‌اند...",
     },
     en: {
-      title: "Private Voice Call",
-      subtitle: "Fast private-room voice call",
+      title: "Happy Talk",
+      subtitle: "Next-generation web voice calling platform",
       enterName: "Username",
       enterRoomName: "Room name",
       enterRoomPassword: "Room password",
@@ -480,6 +487,8 @@ const App = () => {
       themeDark: "Dark",
       themeLight: "Light",
       fontLabel: "Font",
+      buttonHoverColorLabel: "Button hover color",
+      buttonHoverColorReset: "Reset hover color",
       fontVazir: "Vazirmatn",
       fontSystem: "System UI",
       fontSerif: "Serif",
@@ -619,6 +628,16 @@ const App = () => {
   };
 
   const t = { ...translations.en, ...(translations[language] || {}) };
+  const myProfileButtonStyle = useMemo(
+    () => ({
+      "--profile-pill-bg": hexToRgba(profileColor || DEFAULT_PROFILE_COLOR, 0.2),
+      "--profile-pill-border": hexToRgba(profileColor || DEFAULT_PROFILE_COLOR, 0.5),
+      "--profile-pill-text": shadeColor(profileColor || DEFAULT_PROFILE_COLOR, 0.88),
+      "--profile-pill-hover-fill": hexToRgba(profileColor || DEFAULT_PROFILE_COLOR, 0.36),
+      "--profile-pill-hover-glow": hexToRgba(profileColor || DEFAULT_PROFILE_COLOR, 0.24),
+    }),
+    [profileColor]
+  );
 
   const notify = useCallback((text, icon = "info", title = "", options = {}) => {
     return swal({
@@ -687,6 +706,25 @@ const App = () => {
   }, [theme]);
 
   useEffect(() => {
+    localStorage.setItem(BUTTON_HOVER_COLOR_STORAGE_KEY, buttonHoverColor);
+    document.documentElement.style.setProperty("--btn-hover-color", buttonHoverColor);
+    document.documentElement.style.setProperty("--btn-hover-color-soft", hexToRgba(buttonHoverColor, 0.28));
+    document.documentElement.style.setProperty("--btn-hover-color-strong", hexToRgba(buttonHoverColor, 0.38));
+    document.documentElement.style.setProperty("--btn-hover-glow", hexToRgba(buttonHoverColor, 0.14));
+  }, [buttonHoverColor]);
+
+  useEffect(() => {
+    document.title = APP_DISPLAY_NAME;
+    let iconLink = document.querySelector("link[rel='icon']");
+    if (!iconLink) {
+      iconLink = document.createElement("link");
+      iconLink.setAttribute("rel", "icon");
+      document.head.appendChild(iconLink);
+    }
+    iconLink.setAttribute("href", appLogo);
+  }, []);
+
+  useEffect(() => {
     const missedPending = missedCalls.filter((item) => !item.handled).length;
     setPendingNotifications(contactRequests.length + incomingInvites.length + incomingGroupInvites.length + missedPending);
   }, [contactRequests.length, incomingInvites.length, incomingGroupInvites.length, missedCalls]);
@@ -711,6 +749,8 @@ const App = () => {
     if (!profileId) return;
 
     let alive = true;
+    let loadingTimer;
+    const loadingStartedAt = Date.now();
     const loadProfile = async () => {
       try {
         const snapshot = await get(ref(db, `profiles/${profileId}`));
@@ -751,7 +791,11 @@ const App = () => {
         }
       } finally {
         if (alive) {
-          setProfileLoaded(true);
+          const elapsed = Date.now() - loadingStartedAt;
+          const remaining = Math.max(0, PROFILE_LOADING_MIN_MS - elapsed);
+          loadingTimer = setTimeout(() => {
+            if (alive) setProfileLoaded(true);
+          }, remaining);
         }
       }
     };
@@ -760,6 +804,7 @@ const App = () => {
 
     return () => {
       alive = false;
+      if (loadingTimer) clearTimeout(loadingTimer);
     };
   }, [profileId]);
 
@@ -2940,7 +2985,16 @@ const App = () => {
     return (
       <div className="entry-screen">
         <div className="entry-card">
-          <p className="entry-subtitle">Loading profile...</p>
+          <div className="profile-loading-row">
+            <p className="entry-subtitle loading-text">Loading profile</p>
+            <div className="loadingspinner" aria-hidden="true">
+              <div id="square1"></div>
+              <div id="square2"></div>
+              <div id="square3"></div>
+              <div id="square4"></div>
+              <div id="square5"></div>
+            </div>
+          </div>
         </div>
         {uiLockedOverlay}
       </div>
@@ -2952,7 +3006,7 @@ const App = () => {
       <div className="entry-screen">
         <button className="lang-toggle" onClick={() => setShowSettingsPanel(true)}>
           <Settings fontSize="small" />
-          {t.settings}
+          <span className="lang-toggle-label">{t.settings}</span>
           {pendingNotifications > 0 ? <span className="notif-badge">{pendingNotifications}</span> : null}
         </button>
 
@@ -3161,17 +3215,17 @@ const App = () => {
       <div className="entry-screen">
         <button className="lang-toggle" onClick={() => setShowSettingsPanel(true)}>
           <Settings fontSize="small" />
-          {t.settings}
+          <span className="lang-toggle-label">{t.settings}</span>
           {pendingNotifications > 0 ? <span className="notif-badge">{pendingNotifications}</span> : null}
         </button>
 
         <div className="entry-card">
           <h1 className="entry-title">
-            {t.title}
+            {APP_DISPLAY_NAME}
           </h1>
           <p className="entry-subtitle">{t.subtitle}</p>
 
-          <button className="profile-pill" onClick={() => setScreen("profile")}>
+          <button className="profile-pill" style={myProfileButtonStyle} onClick={() => setScreen("profile")}>
             <CloudDone fontSize="small" />
             {t.myProfile}: {(profileName || username || "-").trim()}
           </button>
@@ -3463,7 +3517,7 @@ const App = () => {
 
                   {searchResults.length
                     ? searchResults.map((row) => (
-                        <div className="history-item" key={`search_${row.uid}`}>
+                        <div className="history-item contact-card" key={`search_${row.uid}`}>
                           <span className="contact-line">
                             {row.avatar ? (
                               <img src={row.avatar} alt={row.name || row.uid} className="mini-avatar large" />
@@ -3500,17 +3554,23 @@ const App = () => {
                       <div className="history-list">
                     {contactRequests.length ? (
                       contactRequests.map((request) => (
-                        <div className="history-item" key={request.id}>
+                        <div className="history-item request-card" key={request.id} style={{
+                          background: `linear-gradient(130deg, ${hexToRgba(
+                            request.fromColor || DEFAULT_PROFILE_COLOR,
+                            0.28
+                          )} 0%, ${hexToRgba(request.fromColor || DEFAULT_PROFILE_COLOR, 0.16)} 100%)`,
+                          borderColor: shadeColor(request.fromColor || DEFAULT_PROFILE_COLOR, 0.24),
+                        }}>
                           <span className="contact-line">
                             {request.fromAvatar ? (
                               <img src={request.fromAvatar} alt={request.fromName} className="mini-avatar large" />
                             ) : (
                               <span className="mini-avatar-emoji large">{request.fromEmoji || "🙂"}</span>
                             )}
-                            <strong>{request.fromName}</strong>
+                            <strong className="contact-name">{request.fromName}</strong>
                           </span>
-                          <span>
-                            {request.fromUid} {t.requestedYou}
+                          <span className="uid-copy-row">
+                            <span>{request.fromUid} {t.requestedYou}</span>
                             <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(request.fromUid)} title={t.copiedUid}>
                               <ContentCopy fontSize="small" />
                             </button>
@@ -3535,42 +3595,55 @@ const App = () => {
                     {Object.values(contacts).length ? (
                       Object.values(contacts).map((contact) => {
                         const presence = contactsPresence[contact.uid] || {};
+                        const cardColor = presence.color || contact.color || DEFAULT_PROFILE_COLOR;
+                        const statusText = presence.isOnline
+                          ? `${t.contactsOnline} • ${t.onlineNow}`
+                          : `${t.contactsOffline} • ${t.lastSeen}: ${formatLastSeen(presence.lastSeen || contact.lastSeen)}`;
                         return (
-                          <div className="history-item" key={contact.uid}>
+                          <div
+                            className="history-item contact-card"
+                            key={contact.uid}
+                            style={{
+                              background: `linear-gradient(130deg, ${hexToRgba(cardColor, 0.24)} 0%, ${hexToRgba(
+                                cardColor,
+                                0.14
+                              )} 100%)`,
+                              borderColor: shadeColor(cardColor, 0.2),
+                            }}
+                          >
                             <span className="contact-line">
                               {presence.avatar || contact.avatar ? (
                                 <img src={presence.avatar || contact.avatar} alt={presence.name || contact.name} className="mini-avatar large" />
                               ) : (
                                 <span className="mini-avatar-emoji large">{presence.emoji || contact.emoji || "🙂"}</span>
                               )}
-                              <strong>{presence.name || contact.name}</strong>
+                              <strong className="contact-name">{presence.name || contact.name}</strong>
                             </span>
-                            <span>{t.contactUid}: {contact.uid}</span>
-                            <button className="icon-ghost-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
-                              <ContentCopy fontSize="small" />
-                            </button>
-                            <span className={presence.isOnline ? "status-online" : "status-offline"}>
-                              {presence.isOnline ? t.contactsOnline : t.contactsOffline}
+                            <span className="uid-copy-row">
+                              <span>{t.contactUid}: {contact.uid}</span>
+                              <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
+                                <ContentCopy fontSize="small" />
+                              </button>
                             </span>
-                            <span>{presence.isOnline ? t.onlineNow : `${t.lastSeen}: ${formatLastSeen(presence.lastSeen || contact.lastSeen)}`}</span>
-                            <div className="mode-grid">
+                            <span className={`status-meta ${presence.isOnline ? "status-online" : "status-offline"}`}>
+                              {statusText}
+                            </span>
+                            <div className="contact-actions">
                               <button className="btn-gradient" onClick={() => inviteContactToCall({ ...contact, ...presence })}>
                                 {t.inviteToCall}
                               </button>
                               <button className="btn-gradient danger-btn" onClick={() => removeContactFromList(contact)}>
                                 <PersonRemove fontSize="small" /> {t.removeContact}
                               </button>
-                            </div>
-                            <div className="mode-grid">
                               <button className="btn-gradient danger-btn" onClick={() => blockContact(contact)}>
                                 <Block fontSize="small" /> {t.blockContact}
                               </button>
-                              {blockedContacts[contact.uid] ? (
-                                <button className="btn-gradient" onClick={() => unblockContact(contact.uid)}>
-                                  <Check fontSize="small" /> {t.unblockContact}
-                                </button>
-                              ) : null}
                             </div>
+                            {blockedContacts[contact.uid] ? (
+                              <button className="btn-gradient action-sm" onClick={() => unblockContact(contact.uid)}>
+                                <Check fontSize="small" /> {t.unblockContact}
+                              </button>
+                            ) : null}
                           </div>
                         );
                       })
@@ -3618,11 +3691,27 @@ const App = () => {
                     <button className={`btn-gradient ${fontChoice === "system" ? "mode-active" : ""}`} onClick={() => setFontChoice("system")}>{t.fontSystem}</button>
                   </div>
                   <button className={`btn-gradient ${fontChoice === "serif" ? "mode-active" : ""}`} onClick={() => setFontChoice("serif")}>{t.fontSerif}</button>
+                  <p className="section-label">{t.buttonHoverColorLabel}</p>
+                  <div className="hover-color-row">
+                    <input
+                      type="color"
+                      className="hover-color-input"
+                      value={buttonHoverColor}
+                      onChange={(event) => setButtonHoverColor(event.target.value)}
+                    />
+                    <button className="btn-gradient action-sm" onClick={() => setButtonHoverColor("#13b57f")}>
+                      {t.buttonHoverColorReset}
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
               {settingsTab === "about" ? (
                 <div className="settings-body about-body">
+                  <div className="about-brand">
+                    <img src={appLogo} alt="Happy Talk logo" className="about-logo" />
+                    <h3>{APP_DISPLAY_NAME}</h3>
+                  </div>
                   <h3>About This App 🚀</h3>
                   <p>
                     This application is the result of months of dedicated effort, continuous learning, and real-world testing.
