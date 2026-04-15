@@ -367,6 +367,7 @@ const App = () => {
   const outgoingRequestDialogOpenRef = useRef(false);
   const incomingJoinDialogOpenRef = useRef(false);
   const handledRoomReadyInviteRef = useRef({});
+  const handledIncomingInviteRef = useRef({});
   const groupCreatingDialogOpenRef = useRef(false);
   const activeSessionIdRef = useRef("");
   const speakingSecondsRef = useRef(0);
@@ -1670,6 +1671,10 @@ const App = () => {
     if (!profileLoaded) return false;
     if (joinInFlightRef.current) return false;
     if (joining || inCall) return false;
+    if (client.connectionState && client.connectionState !== "DISCONNECTED") {
+      await client.leave().catch(() => {});
+      client.removeAllListeners();
+    }
     if (groupLobbyId && !options?.allowFromLobbyStart) {
       await notify(t.busyInLobby, "warning");
       return false;
@@ -1754,7 +1759,19 @@ const App = () => {
       const finalName = finalRoomName || safeRoomName;
       const finalRoomKey = toRoomKey(finalName);
 
-      const joinedUid = await client.join(APP_ID, finalName, token, uid);
+      let joinedUid;
+      try {
+        joinedUid = await client.join(APP_ID, finalName, token, uid);
+      } catch (joinError) {
+        const text = String(joinError?.message || joinError || "");
+        if (/INVALID_OPERATION/i.test(text)) {
+          await client.leave().catch(() => {});
+          await new Promise((resolve) => setTimeout(resolve, 220));
+          joinedUid = await client.join(APP_ID, finalName, token, uid);
+        } else {
+          throw joinError;
+        }
+      }
       setUserUID(joinedUid);
       setCallStartedAt(Date.now());
       activeSessionIdRef.current = `${Date.now()}_${uid}`;
@@ -2559,6 +2576,8 @@ const App = () => {
     if (!incomingInvites.length) return;
     const invite = incomingInvites[0];
     if (!invite?.id) return;
+    if (handledIncomingInviteRef.current[invite.id]) return;
+    handledIncomingInviteRef.current[invite.id] = true;
 
     const ask = async () => {
       playIncomingRingtone();
@@ -2574,17 +2593,6 @@ const App = () => {
           respondedAt: Date.now(),
           acceptedBy: profileUid,
         });
-        if (!incomingJoinDialogOpenRef.current) {
-          incomingJoinDialogOpenRef.current = true;
-          swal({
-            title: t.incomingCall,
-            text: t.waitingBackend,
-            icon: "info",
-            buttons: false,
-            closeOnClickOutside: false,
-            closeOnEsc: false,
-          });
-        }
       } else {
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
           status: CONTACT_REQUEST_STATUS.declined,
@@ -2593,7 +2601,9 @@ const App = () => {
       }
     };
 
-    ask();
+    ask().finally(() => {
+      delete handledIncomingInviteRef.current[invite.id];
+    });
     return () => stopIncomingRingtone();
   }, [
     confirmDialog,
@@ -2606,7 +2616,6 @@ const App = () => {
     stopIncomingRingtone,
     t.incomingCall,
     t.incomingCallBody,
-    t.waitingBackend,
     username,
   ]);
 
