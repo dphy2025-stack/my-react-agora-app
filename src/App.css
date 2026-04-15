@@ -398,8 +398,8 @@ input:-webkit-autofill:active {
 
 .settings-panel {
   width: min(760px, 100%);
-  max-height: 88vh;
-  overflow-y: auto;
+  height: min(88vh, 760px);
+  overflow: hidden;
   background: linear-gradient(165deg, rgba(7, 23, 36, 0.97), rgba(6, 17, 27, 0.94));
   border: 1px solid rgba(175, 215, 241, 0.35);
   border-radius: 22px;
@@ -429,10 +429,12 @@ input:-webkit-autofill:active {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #b8c6cf;
+  background: linear-gradient(120deg, rgba(184, 198, 207, 0.95), rgba(165, 190, 203, 0.95), rgba(184, 198, 207, 0.95));
+  background-size: 220% 220%;
   padding: 3px;
   border-radius: 10px;
   border: 1px solid rgba(50, 87, 111, 0.24);
+  animation: tabsFlow 12s ease infinite;
 }
 
 .settings-tabs .btn-gradient {
@@ -516,6 +518,22 @@ input:-webkit-autofill:active {
   border-radius: 14px;
   padding: 14px;
   background: rgba(8, 28, 42, 0.45);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.settings-close-sticky {
+  margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  padding-top: 6px;
+  background: linear-gradient(180deg, rgba(6, 17, 27, 0) 0%, rgba(6, 17, 27, 0.92) 48%);
+}
+
+.settings-close-sticky .btn-gradient {
+  width: 100%;
 }
 
 .embedded-modal {
@@ -533,6 +551,10 @@ body[data-theme="light"] .settings-panel {
 body[data-theme="light"] .settings-tabs {
   background: #d2d9df;
   border-color: rgba(36, 90, 124, 0.18);
+}
+
+body[data-theme="light"] .settings-close-sticky {
+  background: linear-gradient(180deg, rgba(238, 249, 255, 0) 0%, rgba(238, 249, 255, 0.92) 52%);
 }
 
 body[data-theme="light"] .settings-tabs .btn-gradient.mode-active {
@@ -1061,6 +1083,63 @@ body[data-theme="light"] .chip-avatar-emoji {
   color: #d7ecff;
 }
 
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.profile-stat {
+  border: 1px solid rgba(156, 211, 236, 0.24);
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: rgba(8, 32, 47, 0.62);
+}
+
+.profile-stat-call {
+  color: #99f6e4;
+}
+
+.profile-stat-speak {
+  color: #bfdbfe;
+}
+
+.profile-stat-gender {
+  color: #fde68a;
+}
+
+.profile-stat-birth {
+  color: #d8b4fe;
+}
+
+.call-history-item {
+  border-color: rgba(116, 210, 169, 0.38);
+  background: linear-gradient(145deg, rgba(8, 40, 51, 0.9), rgba(8, 31, 44, 0.8));
+}
+
+.missed-history-item {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: linear-gradient(145deg, rgba(57, 24, 28, 0.82), rgba(40, 18, 24, 0.75));
+}
+
+.history-type {
+  color: #86efac;
+  font-weight: 700;
+}
+
+.history-meta {
+  color: #bfdbfe;
+}
+
+.history-duration {
+  color: #fef08a;
+  font-weight: 700;
+}
+
+.history-quality {
+  color: #93c5fd;
+}
+
 .contact-card,
 .request-card {
   position: relative;
@@ -1147,20 +1226,25 @@ body[data-theme="light"] .chip-avatar-emoji {
 
 .contact-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(84px, 1fr));
   gap: 8px;
   margin-top: 2px;
+  align-items: stretch;
 }
 
 .contact-actions .btn-gradient {
-  padding: 7px 8px;
-  min-height: 34px;
-  font-size: 11px;
+  padding: 7px 6px;
+  min-height: 36px;
+  font-size: 10.5px;
   border-radius: 12px;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.action-compact {
+  width: 100%;
 }
 
 .action-sm {
@@ -1259,7 +1343,7 @@ body[data-theme="light"] .btn-gradient {
 }
 
 .btn-gradient:hover {
-  color: #ffffff;
+  color: #eefcf5;
   border-color: rgba(95, 220, 167, 0.56);
   box-shadow: 0 0 0 3px var(--btn-hover-glow);
 }
@@ -1741,8 +1825,8 @@ body[data-theme="light"] .call-card {
     font-size: 26px;
   }
 
-  .settings-tabs {
-    grid-template-columns: 1fr 1fr;
+  .settings-panel {
+    height: min(90vh, 760px);
   }
 
   .embedded-modal {
@@ -1784,7 +1868,7 @@ body[data-theme="light"] .call-card {
   .contact-actions .btn-gradient {
     padding: 6px 4px;
     min-height: 32px;
-    font-size: 10px;
+    font-size: 9.5px;
     border-radius: 10px;
     gap: 4px;
   }
@@ -1946,6 +2030,18 @@ body[data-theme="dark"] .swal-icon--success__line {
 @keyframes contactShimmer {
   100% {
     background-position: -100% 0;
+  }
+}
+
+@keyframes tabsFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
   }
 }
 

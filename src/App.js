@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import swal from "sweetalert";
 import { initializeApp } from "firebase/app";
@@ -67,6 +67,7 @@ const APP_DISPLAY_NAME = "Happy Talk";
 const ADMIN_BACKEND_STORAGE_KEY = "voice_call_admin_backend_url";
 const PROFILE_STORAGE_KEY = "voice_call_profile_id";
 const BUTTON_HOVER_COLOR_STORAGE_KEY = "happy_talk_button_hover_color";
+const BACKEND_ONBOARDING_KEY = "happy_talk_backend_onboarding_done";
 const LOCAL_BACKEND_URL = "http://localhost:5000";
 const PROFILE_LOADING_MIN_MS = 3000;
 const ACTIVE_SESSION_TTL_MS = 20 * 1000;
@@ -329,6 +330,7 @@ const App = () => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showStabilityPicker, setShowStabilityPicker] = useState(false);
+  const [shouldAutoOpenBackendAfterProfileSave, setShouldAutoOpenBackendAfterProfileSave] = useState(false);
 
   const [adminBackendUrl, setAdminBackendUrl] = useState(() => {
     return localStorage.getItem(ADMIN_BACKEND_STORAGE_KEY) || LOCAL_BACKEND_URL;
@@ -785,9 +787,12 @@ const App = () => {
           if (!data.uid) {
             await update(ref(db, `profiles/${profileId}`), { uid: existingUid });
           }
+          setShouldAutoOpenBackendAfterProfileSave(false);
           setScreen("entry");
         } else {
           setProfileUid(generatePublicUid());
+          const onboardingDone = localStorage.getItem(BACKEND_ONBOARDING_KEY) === "1";
+          setShouldAutoOpenBackendAfterProfileSave(!onboardingDone);
           setScreen("profile");
         }
       } catch (_error) {
@@ -1372,6 +1377,12 @@ const App = () => {
       setProfileName(effectiveName);
       setUsername(effectiveName);
       setScreen("entry");
+      if (shouldAutoOpenBackendAfterProfileSave) {
+        setShowSettingsPanel(true);
+        setSettingsTab("backend");
+        setShouldAutoOpenBackendAfterProfileSave(false);
+        localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
+      }
       await notify(t.profileSaved, "success");
     } catch (_error) {
       await notify(t.backendTokenError, "error");
@@ -1393,6 +1404,7 @@ const App = () => {
     profilePayload,
     profileUid,
     notify,
+    shouldAutoOpenBackendAfterProfileSave,
     t.backendTokenError,
     t.nameRequired,
     t.profileSaved,
@@ -2125,6 +2137,9 @@ const App = () => {
       setAdminBackendUrl(LOCAL_BACKEND_URL);
       setActiveBackendUrl("");
       notify(t.backendConnected, "success");
+      localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
+      setShouldAutoOpenBackendAfterProfileSave(false);
+      setTimeout(() => window.location.reload(), 500);
       return;
     }
     if (!isHttpUrl(value)) {
@@ -2134,7 +2149,17 @@ const App = () => {
     setAdminBackendUrl(value);
     setActiveBackendUrl(value);
     notify(`${t.backendConnected}: ${value}`, "success");
+    localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
+    setShouldAutoOpenBackendAfterProfileSave(false);
+    setTimeout(() => window.location.reload(), 500);
   }, [adminBackendUrl, notify, t.backendConnected, t.backendInvalidUrl]);
+
+  useEffect(() => {
+    if (!showSettingsPanel || settingsTab !== "contacts") return;
+    if (contactRequests.length > 0) {
+      setShowRequestsModal(true);
+    }
+  }, [showSettingsPanel, settingsTab, contactRequests.length]);
 
   const copyUid = useCallback(
     async (uid) => {
@@ -3175,10 +3200,6 @@ const App = () => {
             {profileSaving ? t.waitingBackend : t.profileSave}
           </button>
 
-          <button className="btn-gradient danger-btn" onClick={deleteProfile}>
-            <DeleteForever fontSize="small" /> {t.profileDelete}
-          </button>
-
           {profileLoaded ? (
             <button className="btn-gradient" onClick={() => setScreen("entry")}>
               {t.adminClose}
@@ -3434,16 +3455,15 @@ const App = () => {
                       <ContentCopy fontSize="small" />
                     </button>
                   </div>
-                  <p className="section-label">{t.myProfile}: {profileName || "-"}</p>
-                  <p className="section-label">{t.totalCallTime}: {formatDuration(profileCallSeconds)}</p>
-                  <p className="section-label">{t.speakingTotal}: {formatDuration(profileSpeakingSeconds)}</p>
-                  <p className="section-label">{t.genderLabel}: {profileGender === "male" ? t.genderMale : profileGender === "female" ? t.genderFemale : t.genderNotSet}</p>
-                  <p className="section-label">{t.birthDateLabel}: {profileBirthDate || "-"}</p>
+                  <div className="profile-stats-grid">
+                    <p className="section-label profile-stat profile-stat-name">{t.myProfile}: {profileName || "-"}</p>
+                    <p className="section-label profile-stat profile-stat-call">{t.totalCallTime}: {formatDuration(profileCallSeconds)}</p>
+                    <p className="section-label profile-stat profile-stat-speak">{t.speakingTotal}: {formatDuration(profileSpeakingSeconds)}</p>
+                    <p className="section-label profile-stat profile-stat-gender">{t.genderLabel}: {profileGender === "male" ? t.genderMale : profileGender === "female" ? t.genderFemale : t.genderNotSet}</p>
+                    <p className="section-label profile-stat profile-stat-birth">{t.birthDateLabel}: {profileBirthDate || "-"}</p>
+                  </div>
                   <button className="btn-gradient" onClick={() => { setScreen("profile"); setShowSettingsPanel(false); }}>
                     {t.openProfile}
-                  </button>
-                  <button className="btn-gradient danger-btn" onClick={deleteProfile}>
-                    <DeleteForever fontSize="small" /> {t.profileDelete}
                   </button>
                   <div className="mode-grid">
                     <button className="btn-gradient danger-btn" onClick={clearCallHistory}>
@@ -3461,13 +3481,13 @@ const App = () => {
                       <div className="history-list">
                         {profileHistory.length ? (
                           profileHistory.slice(0, 12).map((item) => (
-                            <div className="history-item" key={item.id}>
+                            <div className="history-item call-history-item" key={item.id}>
                               <strong>{t.room}: {item.roomName || "-"}</strong>
-                              <span>{item.type || t.historyAdvanced}</span>
-                              <span>{new Date(item.startedAt || Date.now()).toLocaleString()}</span>
-                              <span>{formatDuration(item.durationSeconds)}</span>
-                              <span>{t.connectionQuality}: {item.qualityAtEnd || "-"}</span>
-                              <span>{t.participants}: {(item.participants || []).join(", ") || "-"}</span>
+                              <span className="history-type">{item.type || t.historyAdvanced}</span>
+                              <span className="history-meta">{new Date(item.startedAt || Date.now()).toLocaleString()}</span>
+                              <span className="history-duration">{formatDuration(item.durationSeconds)}</span>
+                              <span className="history-quality">{t.connectionQuality}: {item.qualityAtEnd || "-"}</span>
+                              <span className="history-meta">{t.participants}: {(item.participants || []).join(", ") || "-"}</span>
                             </div>
                           ))
                         ) : (
@@ -3484,9 +3504,9 @@ const App = () => {
                       <div className="history-list">
                         {missedCalls.length ? (
                           missedCalls.slice(0, 25).map((item) => (
-                            <div className="history-item" key={`missed_inpanel_${item.id}`}>
+                            <div className="history-item missed-history-item" key={`missed_inpanel_${item.id}`}>
                               <strong>{t.missedBy}: {item.fromName || item.fromUid || "-"}</strong>
-                              <span>{new Date(item.at || Date.now()).toLocaleString()}</span>
+                              <span className="history-meta">{new Date(item.at || Date.now()).toLocaleString()}</span>
                             </div>
                           ))
                         ) : (
@@ -3495,6 +3515,9 @@ const App = () => {
                       </div>
                     </div>
                   ) : null}
+                  <button className="btn-gradient danger-btn" onClick={deleteProfile}>
+                    <DeleteForever fontSize="small" /> {t.profileDelete}
+                  </button>
                 </div>
               ) : null}
 
@@ -3503,9 +3526,107 @@ const App = () => {
                   <button className="section-toggle" onClick={() => setShowContactsModal((prev) => !prev)}>
                     {t.contactsModal}
                   </button>
+                  {showContactsModal ? (
+                    <div className="embedded-modal">
+                      <p className="section-label">{t.contactsTitle}</p>
+                      <div className="history-list">
+                        {Object.values(contacts).length ? (
+                          Object.values(contacts).map((contact) => {
+                            const presence = contactsPresence[contact.uid] || {};
+                            const cardColor = presence.color || contact.color || DEFAULT_PROFILE_COLOR;
+                            const statusText = presence.isOnline
+                              ? `${t.contactsOnline} - ${t.onlineNow}`
+                              : `${t.contactsOffline} - ${t.lastSeen}: ${formatLastSeen(presence.lastSeen || contact.lastSeen)}`;
+                            return (
+                              <div
+                                className="history-item contact-card"
+                                key={contact.uid}
+                                style={{
+                                  ...buildSoftCardStyle(cardColor, 0.24, 0.14, 0.2),
+                                }}
+                              >
+                                <span className="contact-line">
+                                  {presence.avatar || contact.avatar ? (
+                                    <img src={presence.avatar || contact.avatar} alt={presence.name || contact.name} className="mini-avatar large" />
+                                  ) : (
+                                    <span className="mini-avatar-emoji large">{presence.emoji || contact.emoji || "🙂"}</span>
+                                  )}
+                                  <strong className="contact-name">{presence.name || contact.name}</strong>
+                                </span>
+                                <span className="uid-copy-row">
+                                  <span>{t.contactUid}: {contact.uid}</span>
+                                  <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
+                                    <ContentCopy fontSize="small" />
+                                  </button>
+                                </span>
+                                <span className={`status-meta ${presence.isOnline ? "status-online" : "status-offline"}`}>
+                                  {statusText}
+                                </span>
+                                <div className="contact-actions">
+                                  <button className="btn-gradient action-compact" onClick={() => inviteContactToCall({ ...contact, ...presence })}>
+                                    {t.inviteToCall}
+                                  </button>
+                                  <button className="btn-gradient danger-btn action-compact" onClick={() => removeContactFromList(contact)}>
+                                    <PersonRemove fontSize="small" /> {t.removeContact}
+                                  </button>
+                                  <button className="btn-gradient danger-btn action-compact" onClick={() => blockContact(contact)}>
+                                    <Block fontSize="small" /> {t.blockContact}
+                                  </button>
+                                </div>
+                                {blockedContacts[contact.uid] ? (
+                                  <button className="btn-gradient action-sm" onClick={() => unblockContact(contact.uid)}>
+                                    <Check fontSize="small" /> {t.unblockContact}
+                                  </button>
+                                ) : null}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="admin-guide">{t.noContacts}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <button className="section-toggle" onClick={() => setShowRequestsModal((prev) => !prev)}>
                     {t.requestsModal}
                   </button>
+                  {showRequestsModal ? (
+                    <div className="embedded-modal">
+                      <p className="section-label">{t.incomingRequests}</p>
+                      <div className="history-list">
+                        {contactRequests.length ? (
+                          contactRequests.map((request) => (
+                            <div className="history-item request-card" key={request.id} style={{
+                              ...buildSoftCardStyle(request.fromColor || DEFAULT_PROFILE_COLOR, 0.28, 0.16, 0.24),
+                            }}>
+                              <span className="contact-line">
+                                {request.fromAvatar ? (
+                                  <img src={request.fromAvatar} alt={request.fromName} className="mini-avatar large" />
+                                ) : (
+                                  <span className="mini-avatar-emoji large">{request.fromEmoji || "🙂"}</span>
+                                )}
+                                <strong className="contact-name">{request.fromName}</strong>
+                              </span>
+                              <span className="uid-copy-row">
+                                <span>{request.fromUid} {t.requestedYou}</span>
+                                <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(request.fromUid)} title={t.copiedUid}>
+                                  <ContentCopy fontSize="small" />
+                                </button>
+                              </span>
+                              <div className="mode-grid">
+                                <button className="btn-gradient" onClick={() => acceptRequest(request)}>{t.accept}</button>
+                                <button className="btn-gradient danger-btn" onClick={() => declineRequest(request)}>{t.decline}</button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="admin-guide">{t.noRequests}</p>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
                   <p className="section-label">{t.contactsTitle}</p>
                   <div className="search-row">
                     <input
@@ -3553,104 +3674,6 @@ const App = () => {
                       ))
                     : null}
 
-                  {showRequestsModal ? (
-                    <div className="embedded-modal">
-                      <p className="section-label">{t.incomingRequests}</p>
-                      <div className="history-list">
-                    {contactRequests.length ? (
-                      contactRequests.map((request) => (
-                        <div className="history-item request-card" key={request.id} style={{
-                          ...buildSoftCardStyle(request.fromColor || DEFAULT_PROFILE_COLOR, 0.28, 0.16, 0.24),
-                        }}>
-                          <span className="contact-line">
-                            {request.fromAvatar ? (
-                              <img src={request.fromAvatar} alt={request.fromName} className="mini-avatar large" />
-                            ) : (
-                              <span className="mini-avatar-emoji large">{request.fromEmoji || "🙂"}</span>
-                            )}
-                            <strong className="contact-name">{request.fromName}</strong>
-                          </span>
-                          <span className="uid-copy-row">
-                            <span>{request.fromUid} {t.requestedYou}</span>
-                            <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(request.fromUid)} title={t.copiedUid}>
-                              <ContentCopy fontSize="small" />
-                            </button>
-                          </span>
-                          <div className="mode-grid">
-                            <button className="btn-gradient" onClick={() => acceptRequest(request)}>{t.accept}</button>
-                            <button className="btn-gradient danger-btn" onClick={() => declineRequest(request)}>{t.decline}</button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="admin-guide">{t.noRequests}</p>
-                    )}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {showContactsModal ? (
-                    <div className="embedded-modal">
-                      <p className="section-label">{t.contactsTitle}</p>
-                      <div className="history-list">
-                    {Object.values(contacts).length ? (
-                      Object.values(contacts).map((contact) => {
-                        const presence = contactsPresence[contact.uid] || {};
-                        const cardColor = presence.color || contact.color || DEFAULT_PROFILE_COLOR;
-                        const statusText = presence.isOnline
-                          ? `${t.contactsOnline} • ${t.onlineNow}`
-                          : `${t.contactsOffline} • ${t.lastSeen}: ${formatLastSeen(presence.lastSeen || contact.lastSeen)}`;
-                        return (
-                          <div
-                            className="history-item contact-card"
-                            key={contact.uid}
-                            style={{
-                              ...buildSoftCardStyle(cardColor, 0.24, 0.14, 0.2),
-                            }}
-                          >
-                            <span className="contact-line">
-                              {presence.avatar || contact.avatar ? (
-                                <img src={presence.avatar || contact.avatar} alt={presence.name || contact.name} className="mini-avatar large" />
-                              ) : (
-                                <span className="mini-avatar-emoji large">{presence.emoji || contact.emoji || "🙂"}</span>
-                              )}
-                              <strong className="contact-name">{presence.name || contact.name}</strong>
-                            </span>
-                            <span className="uid-copy-row">
-                              <span>{t.contactUid}: {contact.uid}</span>
-                              <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
-                                <ContentCopy fontSize="small" />
-                              </button>
-                            </span>
-                            <span className={`status-meta ${presence.isOnline ? "status-online" : "status-offline"}`}>
-                              {statusText}
-                            </span>
-                            <div className="contact-actions">
-                              <button className="btn-gradient" onClick={() => inviteContactToCall({ ...contact, ...presence })}>
-                                {t.inviteToCall}
-                              </button>
-                              <button className="btn-gradient danger-btn" onClick={() => removeContactFromList(contact)}>
-                                <PersonRemove fontSize="small" /> {t.removeContact}
-                              </button>
-                              <button className="btn-gradient danger-btn" onClick={() => blockContact(contact)}>
-                                <Block fontSize="small" /> {t.blockContact}
-                              </button>
-                            </div>
-                            {blockedContacts[contact.uid] ? (
-                              <button className="btn-gradient action-sm" onClick={() => unblockContact(contact.uid)}>
-                                <Check fontSize="small" /> {t.unblockContact}
-                              </button>
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="admin-guide">{t.noContacts}</p>
-                    )}
-                      </div>
-                    </div>
-                  ) : null}
-
                   <p className="section-label">{t.blockContact}</p>
                   <div className="history-list">
                     {Object.keys(blockedContacts || {}).length ? (
@@ -3669,7 +3692,6 @@ const App = () => {
                   </div>
                 </div>
               ) : null}
-
               {settingsTab === "appearance" ? (
                 <div className="settings-body">
                   <p className="section-label">{t.languageLabel}</p>
@@ -3738,6 +3760,14 @@ const App = () => {
                   <p><strong>Wahidullah Khajeh Seddiqi (Mr.Happy)</strong></p>
                   <p>
                     <strong>
+                      Gmail:{" "}
+                      <a href="mailto:wahidmovahed813@gmail.com">
+                        wahidmovahed813@gmail.com
+                      </a>
+                    </strong>
+                  </p>
+                  <p>
+                    <strong>
                       Telegram:{" "}
                       <a href="https://t.me/JustBeHappy3" target="_blank" rel="noreferrer">
                         t.me/JustBeHappy3
@@ -3762,7 +3792,9 @@ const App = () => {
                 </div>
               ) : null}
 
-              <button className="btn-gradient" onClick={() => setShowSettingsPanel(false)}>{t.adminClose}</button>
+              <div className="settings-close-sticky">
+                <button className="btn-gradient" onClick={() => setShowSettingsPanel(false)}>{t.adminClose}</button>
+              </div>
             </div>
           </div>
         ) : null}
