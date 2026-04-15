@@ -2772,7 +2772,7 @@ const App = () => {
   const sendContactRequest = useCallback(
     async (targetUid, targetProfileId) => {
       if (!profileUid || !profileId || !targetUid) return;
-      if (groupLobbyId || inCall) {
+      if (groupLobbyId) {
         await notify(t.busyInLobby, "warning");
         return;
       }
@@ -2817,7 +2817,6 @@ const App = () => {
       profileId,
       profileName,
       profileUid,
-      inCall,
       groupLobbyId,
       t.alreadyBlocked,
       t.busyInLobby,
