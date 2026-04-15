@@ -374,6 +374,7 @@ const App = () => {
   const callUserDisconnectRef = useRef(null);
   const sessionInstanceRef = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const lobbyStatusRef = useRef("");
+  const joinInFlightRef = useRef(false);
 
   const translations = {
     fa: {
@@ -1667,6 +1668,7 @@ const App = () => {
 
   const joinCallInternal = useCallback(async (options = {}) => {
     if (!profileLoaded) return false;
+    if (joinInFlightRef.current) return false;
     if (joining || inCall) return false;
     if (groupLobbyId && !options?.allowFromLobbyStart) {
       await notify(t.busyInLobby, "warning");
@@ -1716,6 +1718,7 @@ const App = () => {
       return false;
     }
 
+    joinInFlightRef.current = true;
     setJoining(true);
 
     try {
@@ -1897,6 +1900,7 @@ const App = () => {
       return false;
     } finally {
       setJoining(false);
+      joinInFlightRef.current = false;
     }
   }, [
     adminBackendUrl,
@@ -1930,9 +1934,9 @@ const App = () => {
     groupLobbyId,
     isAnonymous,
     ensureExclusiveSession,
-    notify,
-    t.busyInLobby,
-    username,
+      notify,
+      t.busyInLobby,
+      username,
   ]);
 
   const joinCall = useCallback(async () => {
@@ -2617,7 +2621,7 @@ const App = () => {
           item.status === "room_ready" &&
           item.roomName &&
           item.roomPassword &&
-          (item.toUid === profileUid || item.acceptedBy === profileUid) &&
+          item.toUid === profileUid &&
           now - Number(item.roomCreatedAt || item.respondedAt || item.createdAt || 0) <= INVITE_TTL_MS &&
           !item.consumedAt
       );
@@ -2997,6 +3001,9 @@ const App = () => {
         return;
       }
       if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
+        if (item.fromUid && item.fromUid !== profileUid) {
+          return;
+        }
         processing = true;
         swal({
           title: t.roomCreating,

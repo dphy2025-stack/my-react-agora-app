@@ -485,6 +485,16 @@ input:-webkit-autofill:active {
 .search-result-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.search-result-actions .btn-gradient {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  white-space: normal;
+  line-height: 1.2;
 }
 
 @media (max-width: 820px) {
@@ -500,6 +510,12 @@ input:-webkit-autofill:active {
   .search-result-actions {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .search-result-actions .btn-gradient {
+    width: 100%;
+    min-height: 34px;
+    font-size: 10.5px;
   }
 }
 
