@@ -376,6 +376,8 @@ const App = () => {
   const sessionInstanceRef = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const lobbyStatusRef = useRef("");
   const joinInFlightRef = useRef(false);
+  const callProgressDialogOpenRef = useRef(false);
+  const callProgressTimerRef = useRef(null);
 
   const translations = {
     fa: {
@@ -699,6 +701,43 @@ const App = () => {
     swal.close();
   }, []);
 
+  const hideCallProgressDialog = useCallback(() => {
+    if (callProgressTimerRef.current) {
+      clearTimeout(callProgressTimerRef.current);
+      callProgressTimerRef.current = null;
+    }
+    if (callProgressDialogOpenRef.current) {
+      swal.close();
+      callProgressDialogOpenRef.current = false;
+    }
+  }, []);
+
+  const showCallProgressDialog = useCallback(
+    (title, text) => {
+      if (callProgressTimerRef.current) {
+        clearTimeout(callProgressTimerRef.current);
+      }
+      callProgressDialogOpenRef.current = true;
+      swal({
+        title,
+        text,
+        icon: "info",
+        buttons: false,
+        closeOnClickOutside: false,
+        closeOnEsc: false,
+      });
+      callProgressTimerRef.current = setTimeout(() => {
+        if (inCall) return;
+        if (callProgressDialogOpenRef.current) {
+          swal.close();
+          callProgressDialogOpenRef.current = false;
+        }
+        notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
+      }, 60 * 1000);
+    },
+    [inCall, notify, t.roomCreateFailed]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "default") {
@@ -731,6 +770,14 @@ const App = () => {
       document.head.appendChild(iconLink);
     }
     iconLink.setAttribute("href", appLogo);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (callProgressTimerRef.current) {
+        clearTimeout(callProgressTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1909,7 +1956,7 @@ const App = () => {
       localTrackRef.current?.close?.();
       localTrackRef.current = null;
       const msg = String(error?.message || t.backendTokenError);
-      if (/token cancel|agora token cancel/i.test(msg)) {
+      if (/token cancel|agora token cancel|agorartc.*leave/i.test(msg)) {
         return false;
       }
       const smartMessage =
@@ -2643,17 +2690,8 @@ const App = () => {
 
       const tryJoinOnce = async () => {
         if (inCall) return;
-        if (!incomingJoinDialogOpenRef.current) {
-          incomingJoinDialogOpenRef.current = true;
-          swal({
-            title: t.incomingCall,
-            text: t.waitingBackend,
-            icon: "info",
-            buttons: false,
-            closeOnClickOutside: false,
-            closeOnEsc: false,
-          });
-        }
+        if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
+        showCallProgressDialog(t.incomingCall, t.waitingBackend);
         const joinDelay = Math.min(
           2600,
           Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 850))
@@ -2676,10 +2714,8 @@ const App = () => {
             allowFromLobbyStart: true,
           });
         }
-        if (incomingJoinDialogOpenRef.current) {
-          swal.close();
-          incomingJoinDialogOpenRef.current = false;
-        }
+        if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
+        hideCallProgressDialog();
         if (!joined) {
           delete handledRoomReadyInviteRef.current[roomReadyInvite.id];
           return;
@@ -2695,7 +2731,7 @@ const App = () => {
       }, 100);
     });
     return () => unsubscribe();
-  }, [inCall, joinCallInternal, profileUid, t.incomingCall, t.waitingBackend]);
+  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend]);
 
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
@@ -3028,21 +3064,12 @@ const App = () => {
           return;
         }
         processing = true;
-        swal({
-          title: t.roomCreating,
-          text: t.waitingBackend,
-          icon: "info",
-          buttons: false,
-          closeOnClickOutside: false,
-          closeOnEsc: false,
-        });
+        showCallProgressDialog(t.roomCreating, t.waitingBackend);
         const room = randomRoomValue("room");
         const password = randomRoomValue("pw");
         const joined = await triggerJoinWith("create", room, password);
-        if (outgoingRequestDialogOpenRef.current) {
-          swal.close();
-          outgoingRequestDialogOpenRef.current = false;
-        }
+        if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
+        hideCallProgressDialog();
         if (!joined) {
           setOutgoingCallRequest(null);
           return;
@@ -3060,19 +3087,10 @@ const App = () => {
       }
       if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
         processing = true;
-        swal({
-          title: t.roomCreating,
-          text: t.waitingBackend,
-          icon: "info",
-          buttons: false,
-          closeOnClickOutside: false,
-          closeOnEsc: false,
-        });
+        showCallProgressDialog(t.roomCreating, t.waitingBackend);
         const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
-        if (outgoingRequestDialogOpenRef.current) {
-          swal.close();
-          outgoingRequestDialogOpenRef.current = false;
-        }
+        if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
+        hideCallProgressDialog();
         if (!joined) {
           setOutgoingCallRequest(null);
           return;
@@ -3081,7 +3099,7 @@ const App = () => {
       }
     });
     return () => unsubscribe();
-  }, [notify, outgoingCallRequest, profileUid, t.requestExpired, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+  }, [hideCallProgressDialog, notify, outgoingCallRequest, profileUid, showCallProgressDialog, t.requestExpired, t.roomCreating, t.waitingBackend, triggerJoinWith]);
 
   useEffect(() => {
     if (!inCall) return;
@@ -3090,7 +3108,8 @@ const App = () => {
       outgoingRequestDialogOpenRef.current = false;
       incomingJoinDialogOpenRef.current = false;
     }
-  }, [inCall]);
+    hideCallProgressDialog();
+  }, [hideCallProgressDialog, inCall]);
 
   const addUserFromCall = useCallback(
     async (_agoraUid, rawUser) => {

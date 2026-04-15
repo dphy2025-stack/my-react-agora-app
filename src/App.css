@@ -504,12 +504,15 @@ input:-webkit-autofill:active {
 }
 
 .search-result-card {
+  display: flex;
+  flex-direction: column;
   overflow: visible;
   padding-bottom: 12px;
 }
 
 .search-result-card .search-result-actions {
   display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   visibility: visible;
   opacity: 1;
 }
@@ -538,6 +541,10 @@ input:-webkit-autofill:active {
   .search-result-card {
     overflow: visible;
     padding-bottom: 14px;
+  }
+
+  .search-result-card .search-result-actions {
+    grid-template-columns: 1fr;
   }
 }
 
