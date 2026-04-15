@@ -1860,6 +1860,7 @@ const App = () => {
       });
 
       client.on("volume-indicator", (levels) => {
+        if (!Array.isArray(levels)) return;
         const next = {};
         let localSpeakingNow = false;
         levels.forEach((item) => {
@@ -1890,7 +1891,11 @@ const App = () => {
       };
 
       client.on("user-published", async (user, mediaType) => {
-        await subscribeAndPlay(user, mediaType);
+        try {
+          await subscribeAndPlay(user, mediaType);
+        } catch (_error) {
+          // keep call alive even if one subscribe fails
+        }
       });
 
       client.on("user-joined", async (user) => {
@@ -3945,6 +3950,11 @@ const App = () => {
     );
   }
 
+  const safeUsersInCall =
+    usersInCall && typeof usersInCall === "object" && !Array.isArray(usersInCall)
+      ? usersInCall
+      : {};
+
   return (
     <div className="call-screen">
       <div className="call-card">
@@ -3995,11 +4005,11 @@ const App = () => {
 
         <div className="users-box">
           <h4>
-            <PersonIcon fontSize="small" /> {t.users} ({Object.keys(usersInCall).length})
+            <PersonIcon fontSize="small" /> {t.users} ({Object.keys(safeUsersInCall).length})
           </h4>
           <div className="users-list">
-            {Object.keys(usersInCall).map((uid) => {
-              const userInfo = normalizeCallUser(usersInCall[uid]);
+            {Object.keys(safeUsersInCall).map((uid) => {
+              const userInfo = normalizeCallUser(safeUsersInCall[uid]);
               const isSelf = Number(uid) === Number(userUID);
               const isSpeaking = Boolean(speakingUsers[uid]);
               const shouldShowSpeaking = isSpeaking && !(isSelf && isMuted);
@@ -4023,7 +4033,7 @@ const App = () => {
                   className={`user-chip ${shouldShowSpeaking ? "is-speaking" : "is-idle"} ${
                     isSelf && isMuted ? "is-muted" : ""
                   }`}
-                  onClick={() => openCallUserInfo(usersInCall[uid])}
+                  onClick={() => openCallUserInfo(safeUsersInCall[uid])}
                   style={{
                     background: shouldShowSpeaking ? speakingBackground : idleBackground,
                     borderColor: shouldShowSpeaking ? shadeColor(baseColor, -0.12) : shadeColor(baseColor, 0.02),
@@ -4044,7 +4054,7 @@ const App = () => {
                         className="add-contact-btn"
                         onClick={(event) => {
                           event.stopPropagation();
-                          addUserFromCall(uid, usersInCall[uid]);
+                          addUserFromCall(uid, safeUsersInCall[uid]);
                         }}
                         title={t.addContact}
                       >
