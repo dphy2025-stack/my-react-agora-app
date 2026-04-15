@@ -104,7 +104,7 @@ const NETWORK_STATUS = {
   offline: "offline",
 };
 const INVITE_TTL_MS = 2 * 60 * 1000;
-const SPEAKING_LEVEL_THRESHOLD = 7;
+const SPEAKING_LEVEL_THRESHOLD = 9;
 const CALL_USER_STALE_MS = 90 * 1000;
 const RINGTONES = {
   ringtone_1: ringtone1,
@@ -189,6 +189,11 @@ const shadeColor = (hex, amount) => {
   const nextG = clamp(Math.round(g + (255 - g) * amount), 0, 255);
   const nextB = clamp(Math.round(b + (255 - b) * amount), 0, 255);
   return `rgb(${nextR}, ${nextG}, ${nextB})`;
+};
+
+const hexToRgba = (hex, alpha) => {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
 const calcAge = (birthDate) => {
@@ -1456,7 +1461,9 @@ const App = () => {
     const handleQuality = (stats) => {
       const worst = Math.max(stats.uplinkNetworkQuality || 0, stats.downlinkNetworkQuality || 0);
       setConnectionQuality(qualityLabel(worst, labelSet));
-      if (worst >= 5) {
+      if (worst >= 6) {
+        setLocalNetworkStatus(NETWORK_STATUS.offline);
+      } else if (worst >= 4) {
         setLocalNetworkStatus(NETWORK_STATUS.weak);
       } else {
         setLocalNetworkStatus(NETWORK_STATUS.good);
@@ -1485,7 +1492,7 @@ const App = () => {
   useEffect(() => {
     if (!inCall || !activeRoomKey || userUID === null) return undefined;
 
-    const interval = setInterval(() => {
+    const updatePresence = () =>
       update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), {
         lastSeen: Date.now(),
         networkStatus: localNetworkStatus,
@@ -1494,7 +1501,9 @@ const App = () => {
         emoji: profileEmoji || "",
         color: profileColor || DEFAULT_PROFILE_COLOR,
       }).catch(() => {});
-    }, 7000);
+
+    updatePresence();
+    const interval = setInterval(updatePresence, 2500);
 
     return () => clearInterval(interval);
   }, [activeRoomKey, inCall, localNetworkStatus, userUID, profileName, username, profileUid, profileAvatar, profileEmoji, profileColor]);
@@ -3641,7 +3650,14 @@ const App = () => {
                   </p>
                   <h4>👨‍💻 Creator</h4>
                   <p><strong>Wahidullah Khajeh Seddiqi (Mr.Happy)</strong></p>
-                  <p><strong>Telegram: t.me/JustBeHappy3</strong></p>
+                  <p>
+                    <strong>
+                      Telegram:{" "}
+                      <a href="https://t.me/JustBeHappy3" target="_blank" rel="noreferrer">
+                        t.me/JustBeHappy3
+                      </a>
+                    </strong>
+                  </p>
                   <p>✨ Built with passion, persistence, and a love for creating real-world solutions.</p>
                 </div>
               ) : null}
@@ -3733,13 +3749,13 @@ const App = () => {
               const canAddContact = !isSelf && userInfo.uid && !contactsByUid[userInfo.uid];
               const canAdminMute = isRoomAdmin && !isSelf && userInfo.uid;
               const baseColor = userInfo.color || DEFAULT_PROFILE_COLOR;
-              const idleBackground = `linear-gradient(135deg, ${shadeColor(baseColor, 0.42)} 0%, ${shadeColor(
+              const idleBackground = `linear-gradient(135deg, ${hexToRgba(baseColor, 0.36)} 0%, ${hexToRgba(
                 baseColor,
                 0.2
               )} 100%)`;
-              const speakingBackground = `linear-gradient(135deg, ${shadeColor(baseColor, -0.45)} 0%, ${shadeColor(
+              const speakingBackground = `linear-gradient(135deg, ${hexToRgba(baseColor, 0.9)} 0%, ${hexToRgba(
                 baseColor,
-                -0.65
+                0.72
               )} 100%)`;
 
               return (
@@ -3752,6 +3768,7 @@ const App = () => {
                   style={{
                     background: shouldShowSpeaking ? speakingBackground : idleBackground,
                     borderColor: shouldShowSpeaking ? shadeColor(baseColor, -0.12) : shadeColor(baseColor, 0.02),
+                    opacity: shouldShowSpeaking ? 1 : 0.76,
                   }}
                 >
                   <span className="chip-user-main">
