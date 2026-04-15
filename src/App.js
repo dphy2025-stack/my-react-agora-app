@@ -650,8 +650,24 @@ const App = () => {
     [profileColor]
   );
 
+  const closeSwalSafely = useCallback(() => {
+    try {
+      swal.close();
+    } catch (_error) {
+      // ignore sweetalert close errors in production race conditions
+    }
+  }, []);
+
+  const openSwalSafely = useCallback((config) => {
+    try {
+      return swal(config);
+    } catch (_error) {
+      return Promise.resolve(false);
+    }
+  }, []);
+
   const notify = useCallback((text, icon = "info", title = "", options = {}) => {
-    return swal({
+    return openSwalSafely({
       title: title || undefined,
       text,
       icon,
@@ -660,17 +676,17 @@ const App = () => {
       closeOnClickOutside: !options.persistent,
       closeOnEsc: !options.persistent,
     });
-  }, []);
+  }, [openSwalSafely]);
 
   const confirmDialog = useCallback((text, title = "Confirm") => {
-    return swal({
+    return openSwalSafely({
       title,
       text,
       icon: "warning",
       dangerMode: true,
       buttons: ["Cancel", "Yes"],
     });
-  }, []);
+  }, [openSwalSafely]);
 
   const pushBrowserNotification = useCallback((title, body = "") => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -685,7 +701,7 @@ const App = () => {
   const showGroupCreatingDialog = useCallback(() => {
     if (groupCreatingDialogOpenRef.current) return;
     groupCreatingDialogOpenRef.current = true;
-    swal({
+    openSwalSafely({
       title: t.roomCreating,
       text: t.waitingBackend,
       icon: "info",
@@ -693,13 +709,13 @@ const App = () => {
       closeOnClickOutside: false,
       closeOnEsc: false,
     });
-  }, [t.roomCreating, t.waitingBackend]);
+  }, [openSwalSafely, t.roomCreating, t.waitingBackend]);
 
   const hideGroupCreatingDialog = useCallback(() => {
     if (!groupCreatingDialogOpenRef.current) return;
     groupCreatingDialogOpenRef.current = false;
-    swal.close();
-  }, []);
+    closeSwalSafely();
+  }, [closeSwalSafely]);
 
   const hideCallProgressDialog = useCallback(() => {
     if (callProgressTimerRef.current) {
@@ -707,10 +723,10 @@ const App = () => {
       callProgressTimerRef.current = null;
     }
     if (callProgressDialogOpenRef.current) {
-      swal.close();
+      closeSwalSafely();
       callProgressDialogOpenRef.current = false;
     }
-  }, []);
+  }, [closeSwalSafely]);
 
   const showCallProgressDialog = useCallback(
     (title, text) => {
@@ -718,7 +734,7 @@ const App = () => {
         clearTimeout(callProgressTimerRef.current);
       }
       callProgressDialogOpenRef.current = true;
-      swal({
+      openSwalSafely({
         title,
         text,
         icon: "info",
@@ -729,13 +745,13 @@ const App = () => {
       callProgressTimerRef.current = setTimeout(() => {
         if (inCall) return;
         if (callProgressDialogOpenRef.current) {
-          swal.close();
+          closeSwalSafely();
           callProgressDialogOpenRef.current = false;
         }
         notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
       }, 60 * 1000);
     },
-    [inCall, notify, t.roomCreateFailed]
+    [closeSwalSafely, inCall, notify, openSwalSafely, t.roomCreateFailed]
   );
 
   useEffect(() => {
@@ -3008,7 +3024,7 @@ const App = () => {
       });
       if (!outgoingRequestDialogOpenRef.current) {
         outgoingRequestDialogOpenRef.current = true;
-        swal({
+        openSwalSafely({
           title: t.requestingCall,
           text: t.expiresIn,
           icon: "info",
@@ -3035,6 +3051,7 @@ const App = () => {
       t.callUnavailableOffline,
       t.expiresIn,
       t.requestingCall,
+      openSwalSafely,
       username,
       writeMissedCall,
     ]
@@ -3055,7 +3072,7 @@ const App = () => {
       const item = snapshot.val();
       if (!item) {
         if (outgoingRequestDialogOpenRef.current) {
-          swal.close();
+          closeSwalSafely();
           outgoingRequestDialogOpenRef.current = false;
         }
         setOutgoingCallRequest(null);
@@ -3068,7 +3085,7 @@ const App = () => {
       }
       if (item.status === CONTACT_REQUEST_STATUS.declined || item.status === "expired") {
         if (outgoingRequestDialogOpenRef.current) {
-          swal.close();
+          closeSwalSafely();
           outgoingRequestDialogOpenRef.current = false;
         }
         setOutgoingCallRequest(null);
@@ -3115,15 +3132,15 @@ const App = () => {
       }
     });
     return () => unsubscribe();
-  }, [hideCallProgressDialog, notify, outgoingCallRequest, profileUid, showCallProgressDialog, t.requestExpired, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestExpired, t.requestingCall, t.roomCreating, t.waitingBackend, triggerJoinWith]);
 
   useEffect(() => {
     if (!inCall) return;
-    swal.close();
+    closeSwalSafely();
     outgoingRequestDialogOpenRef.current = false;
     incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
-  }, [hideCallProgressDialog, inCall]);
+  }, [closeSwalSafely, hideCallProgressDialog, inCall]);
 
   const addUserFromCall = useCallback(
     async (_agoraUid, rawUser) => {
