@@ -1017,7 +1017,10 @@ const App = () => {
   }, [profileLoaded, profileId]);
 
   useEffect(() => {
-    const contactList = Object.values(contacts || {});
+    const contactList = Object.entries(contacts || {}).map(([key, value]) => ({
+      ...(value || {}),
+      uid: value?.uid || key,
+    }));
     if (!contactList.length) {
       setContactsPresence({});
       return undefined;
@@ -1383,7 +1386,7 @@ const App = () => {
         setShouldAutoOpenBackendAfterProfileSave(false);
         localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
       }
-      await notify(t.profileSaved, "success");
+      await notify(t.profileSaved, "success", "", { autoCloseMs: 2000 });
     } catch (_error) {
       await notify(t.backendTokenError, "error");
     } finally {
@@ -2131,27 +2134,27 @@ const App = () => {
     await notify(t.copied, "success");
   }, [activeRoomName, inviteCode, notify, roomPassword, t.copied]);
 
-  const saveAdminBackend = useCallback(() => {
+  const saveAdminBackend = useCallback(async () => {
     const value = adminBackendUrl.trim().replace(/\/+$/, "");
     if (!value) {
       setAdminBackendUrl(LOCAL_BACKEND_URL);
       setActiveBackendUrl("");
-      notify(t.backendConnected, "success");
+      await notify(t.backendConnected, "success", "", { autoCloseMs: 2000 });
       localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
       setShouldAutoOpenBackendAfterProfileSave(false);
-      setTimeout(() => window.location.reload(), 500);
+      setTimeout(() => window.location.reload(), 2100);
       return;
     }
     if (!isHttpUrl(value)) {
-      notify(t.backendInvalidUrl, "warning");
+      await notify(t.backendInvalidUrl, "warning", "", { autoCloseMs: 2000 });
       return;
     }
     setAdminBackendUrl(value);
     setActiveBackendUrl(value);
-    notify(`${t.backendConnected}: ${value}`, "success");
+    await notify(`${t.backendConnected}: ${value}`, "success", "", { autoCloseMs: 2000 });
     localStorage.setItem(BACKEND_ONBOARDING_KEY, "1");
     setShouldAutoOpenBackendAfterProfileSave(false);
-    setTimeout(() => window.location.reload(), 500);
+    setTimeout(() => window.location.reload(), 2100);
   }, [adminBackendUrl, notify, t.backendConnected, t.backendInvalidUrl]);
 
   useEffect(() => {
@@ -2457,7 +2460,8 @@ const App = () => {
     setProfileSpeakingSeconds(0);
     setProfileHistory([]);
     setScreen("profile");
-    await notify(t.profileDeleted, "success");
+    await notify(t.profileDeleted, "success", "", { autoCloseMs: 1200 });
+    setTimeout(() => window.location.reload(), 1300);
   }, [confirmDialog, contacts, notify, profileId, profileUid, t.profileDelete, t.profileDeleteConfirm, t.profileDeleted]);
 
   const formatDuration = useCallback((seconds) => {
@@ -2483,8 +2487,9 @@ const App = () => {
 
   const contactsByUid = useMemo(() => {
     const map = {};
-    Object.values(contacts || {}).forEach((item) => {
-      if (item?.uid) map[item.uid] = item;
+    Object.entries(contacts || {}).forEach(([key, item]) => {
+      const uid = item?.uid || key;
+      if (uid) map[uid] = { ...(item || {}), uid };
     });
     return map;
   }, [contacts]);
@@ -2560,11 +2565,30 @@ const App = () => {
       );
       stopIncomingRingtone();
       if (accepted) {
-        await update(ref(db, `invites/${profileUid}/${invite.id}`), {
-          status: CONTACT_REQUEST_STATUS.accepted,
+        const room = randomRoomValue("room");
+        const password = randomRoomValue("pw");
+        const roomPayload = {
+          status: "room_ready",
+          roomName: room,
+          roomPassword: password,
+          roomCreatedBy: profileUid,
+          roomCreatedAt: Date.now(),
           respondedAt: Date.now(),
           acceptedBy: profileUid,
-        });
+        };
+        await update(ref(db, `invites/${profileUid}/${invite.id}`), roomPayload);
+        if (invite.fromUid) {
+          await set(ref(db, `invites/${invite.fromUid}/${invite.id}`), {
+            fromUid: profileUid,
+            fromProfileId: profileId,
+            fromName: profileName || username || profileUid,
+            toUid: invite.fromUid,
+            toProfileId: invite.fromProfileId || "",
+            createdAt: invite.createdAt || Date.now(),
+            expiresAt: invite.expiresAt || Date.now() + INVITE_TTL_MS,
+            ...roomPayload,
+          }).catch(() => {});
+        }
         if (!incomingJoinDialogOpenRef.current) {
           incomingJoinDialogOpenRef.current = true;
           swal({
@@ -2590,12 +2614,15 @@ const App = () => {
     confirmDialog,
     incomingInvites,
     playIncomingRingtone,
+    profileId,
+    profileName,
     profileUid,
     pushBrowserNotification,
     stopIncomingRingtone,
     t.incomingCall,
     t.incomingCallBody,
     t.waitingBackend,
+    username,
   ]);
 
   useEffect(() => {
@@ -2690,11 +2717,12 @@ const App = () => {
       }
       const targetPresenceSnap = await get(ref(db, `uidDirectory/${targetUid}`)).catch(() => null);
       const targetPresence = targetPresenceSnap?.val?.() || {};
+      const resolvedTargetProfileId = targetProfileId || targetPresence.profileId || "";
       if (targetPresence.inCallRoomKey || targetPresence.inGroupLobbyId) {
         await notify(t.cannotCallNow, "warning");
         return;
       }
-      const remoteHasBlocked = await isBlockedByRemote(targetProfileId);
+      const remoteHasBlocked = await isBlockedByRemote(resolvedTargetProfileId);
       if (remoteHasBlocked) {
         await notify(t.blockedYou, "warning");
         return;
@@ -2707,7 +2735,7 @@ const App = () => {
         fromAvatar: profileAvatar || "",
         fromEmoji: profileEmoji || "",
         fromColor: profileColor || DEFAULT_PROFILE_COLOR,
-        targetProfileId,
+        targetProfileId: resolvedTargetProfileId,
         status: CONTACT_REQUEST_STATUS.pending,
         createdAt: Date.now(),
         expiresAt: Date.now() + INVITE_TTL_MS,
@@ -2764,21 +2792,36 @@ const App = () => {
 
   const acceptRequest = useCallback(
     async (request) => {
-      await addContactPair({
-        uid: request.fromUid,
-        profileId: request.fromProfileId,
-        name: request.fromName,
-        avatar: request.fromAvatar,
-        emoji: request.fromEmoji,
-        color: request.fromColor,
-      });
-      await update(ref(db, `contactRequests/${profileUid}/${request.id}`), {
-        status: CONTACT_REQUEST_STATUS.accepted,
-        respondedAt: Date.now(),
-      });
-      await notify(t.requestAccepted, "success", "", { autoCloseMs: 2000 });
+      if (!request?.id || !request?.fromUid || !profileUid) return;
+      try {
+        let resolvedProfileId = request.fromProfileId || "";
+        if (!resolvedProfileId) {
+          const fromSnap = await get(ref(db, `uidDirectory/${request.fromUid}`)).catch(() => null);
+          resolvedProfileId = fromSnap?.val?.()?.profileId || "";
+        }
+        if (!resolvedProfileId) {
+          await notify(t.userNotFound, "warning", "", { autoCloseMs: 2000 });
+          return;
+        }
+        await addContactPair({
+          uid: request.fromUid,
+          profileId: resolvedProfileId,
+          name: request.fromName,
+          avatar: request.fromAvatar,
+          emoji: request.fromEmoji,
+          color: request.fromColor,
+        });
+        await update(ref(db, `contactRequests/${profileUid}/${request.id}`), {
+          status: CONTACT_REQUEST_STATUS.accepted,
+          respondedAt: Date.now(),
+          fromProfileId: resolvedProfileId,
+        });
+        await notify(t.requestAccepted, "success", "", { autoCloseMs: 2000 });
+      } catch (_error) {
+        await notify(t.backendTokenError, "error", "", { autoCloseMs: 2000 });
+      }
     },
-    [addContactPair, notify, profileUid, t.requestAccepted]
+    [addContactPair, notify, profileUid, t.backendTokenError, t.requestAccepted, t.userNotFound]
   );
 
   const declineRequest = useCallback(
@@ -2794,17 +2837,18 @@ const App = () => {
 
   const blockContact = useCallback(
     async (contact) => {
-      if (!profileId || !contact?.uid) return;
+      const contactUid = contact?.uid || contact?.contactUid || "";
+      if (!profileId || !contactUid) return;
       const ok = await confirmDialog(t.confirmBlock, t.actionConfirm);
       if (!ok) return;
-      await update(ref(db, `blockedContacts/${profileId}/${contact.uid}`), {
-        uid: contact.uid,
+      await update(ref(db, `blockedContacts/${profileId}/${contactUid}`), {
+        uid: contactUid,
         profileId: contact.profileId || "",
-        name: contact.name || contact.uid,
+        name: contact.name || contactUid,
         blockedAt: Date.now(),
       });
-      await remove(ref(db, `contacts/${profileId}/${contact.uid}`)).catch(() => {});
-      await notify(t.blockedContact, "success");
+      await remove(ref(db, `contacts/${profileId}/${contactUid}`)).catch(() => {});
+      await notify(t.blockedContact, "success", "", { autoCloseMs: 2000 });
     },
     [confirmDialog, notify, profileId, t.actionConfirm, t.blockedContact, t.confirmBlock]
   );
@@ -2820,62 +2864,69 @@ const App = () => {
 
   const removeContactFromList = useCallback(
     async (contact) => {
-      if (!profileId || !contact?.uid) return;
+      const contactUid = contact?.uid || contact?.contactUid || "";
+      if (!profileId || !contactUid) return;
       const ok = await confirmDialog(t.confirmRemove, t.actionConfirm);
       if (!ok) return;
-      await remove(ref(db, `contacts/${profileId}/${contact.uid}`));
-      await notify(t.contactRemoved, "success");
+      await remove(ref(db, `contacts/${profileId}/${contactUid}`));
+      await notify(t.contactRemoved, "success", "", { autoCloseMs: 2000 });
     },
     [confirmDialog, notify, profileId, t.actionConfirm, t.confirmRemove, t.contactRemoved]
   );
 
   const sendCallInvite = useCallback(
     async (target) => {
-      if (!target?.uid || !profileUid) return false;
+      const targetUid = target?.uid || target?.contactUid || "";
+      if (!targetUid || !profileUid) return false;
       if (groupLobbyId || inCall) {
         await notify(t.busyInLobby, "warning");
         return false;
       }
-      if (isBlockedLocally(target.uid)) {
+      if (isBlockedLocally(targetUid)) {
         await notify(t.blockedUserCannotCall, "warning");
         return false;
       }
-      if (await isBlockedByRemote(target.profileId)) {
+      let targetProfileId = target?.profileId || "";
+      if (!targetProfileId) {
+        const profileSnap = await get(ref(db, `uidDirectory/${targetUid}`)).catch(() => null);
+        targetProfileId = profileSnap?.val?.()?.profileId || "";
+      }
+      if (await isBlockedByRemote(targetProfileId)) {
         await notify(t.blockedYou, "warning");
         return false;
       }
 
-      const targetPresenceSnapshot = await get(ref(db, `uidDirectory/${target.uid}`)).catch(() => null);
+      const targetPresenceSnapshot = await get(ref(db, `uidDirectory/${targetUid}`)).catch(() => null);
       const targetPresence = targetPresenceSnapshot?.val?.() || {};
       const isOnline = Boolean(targetPresence.isOnline);
       const isBusy = Boolean(targetPresence.inCallRoomKey);
       const inLobby = Boolean(targetPresence.inGroupLobbyId);
 
       if (!isOnline) {
-        await writeMissedCall(target.uid, { reason: "offline" });
+        await writeMissedCall(targetUid, { reason: "offline" });
         await notify(t.callUnavailableOffline, "info");
         return false;
       }
       if (isBusy || inLobby) {
-        await writeMissedCall(target.uid, { reason: "busy" });
+        await writeMissedCall(targetUid, { reason: "busy" });
         await notify(t.cannotCallNow, "info");
         return false;
       }
 
       const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      await set(ref(db, `invites/${target.uid}/${inviteId}`), {
+      await set(ref(db, `invites/${targetUid}/${inviteId}`), {
         fromUid: profileUid,
         fromProfileId: profileId,
         fromName: profileName || username || profileUid,
-        toUid: target.uid,
-        toProfileId: target.profileId || "",
+        toUid: targetUid,
+        toProfileId: targetProfileId,
         status: CONTACT_REQUEST_STATUS.pending,
         createdAt: Date.now(),
         expiresAt: Date.now() + INVITE_TTL_MS,
       });
 
       setOutgoingCallRequest({
-        targetUid: target.uid,
+        targetUid,
         inviteId,
         requestedAt: Date.now(),
       });
@@ -2950,6 +3001,14 @@ const App = () => {
       }
       if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
         processing = true;
+        swal({
+          title: t.roomCreating,
+          text: t.waitingBackend,
+          icon: "info",
+          buttons: false,
+          closeOnClickOutside: false,
+          closeOnEsc: false,
+        });
         const room = randomRoomValue("room");
         const password = randomRoomValue("pw");
         await update(inviteRef, {
@@ -2970,9 +3029,30 @@ const App = () => {
         }
         setOutgoingCallRequest(null);
       }
+      if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
+        processing = true;
+        swal({
+          title: t.roomCreating,
+          text: t.waitingBackend,
+          icon: "info",
+          buttons: false,
+          closeOnClickOutside: false,
+          closeOnEsc: false,
+        });
+        const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
+        if (outgoingRequestDialogOpenRef.current) {
+          swal.close();
+          outgoingRequestDialogOpenRef.current = false;
+        }
+        if (!joined) {
+          setOutgoingCallRequest(null);
+          return;
+        }
+        setOutgoingCallRequest(null);
+      }
     });
     return () => unsubscribe();
-  }, [notify, outgoingCallRequest, profileUid, t.requestExpired, triggerJoinWith]);
+  }, [notify, outgoingCallRequest, profileUid, t.requestExpired, t.roomCreating, t.waitingBackend, triggerJoinWith]);
 
   useEffect(() => {
     if (!inCall) return;
@@ -3365,8 +3445,11 @@ const App = () => {
                   </div>
                 ) : null}
                 <div className="history-list">
-                  {Object.values(contacts).filter((item) => contactsPresence[item.uid]?.isOnline).length ? (
-                    Object.values(contacts)
+                  {Object.entries(contacts || {})
+                    .map(([uidKey, item]) => ({ ...(item || {}), uid: item?.uid || uidKey }))
+                    .filter((item) => contactsPresence[item.uid]?.isOnline).length ? (
+                    Object.entries(contacts || {})
+                      .map(([uidKey, item]) => ({ ...(item || {}), uid: item?.uid || uidKey }))
                       .filter((item) => contactsPresence[item.uid]?.isOnline)
                       .map((contact) => (
                         <div className="history-item" key={`lobby_${contact.uid}`}>
@@ -3530,8 +3613,9 @@ const App = () => {
                     <div className="embedded-modal">
                       <p className="section-label">{t.contactsTitle}</p>
                       <div className="history-list">
-                        {Object.values(contacts).length ? (
-                          Object.values(contacts).map((contact) => {
+                        {Object.entries(contacts || {}).length ? (
+                          Object.entries(contacts || {}).map(([contactUidKey, contactRaw]) => {
+                            const contact = { ...(contactRaw || {}), uid: contactRaw?.uid || contactUidKey };
                             const presence = contactsPresence[contact.uid] || {};
                             const cardColor = presence.color || contact.color || DEFAULT_PROFILE_COLOR;
                             const statusText = presence.isOnline
@@ -3563,13 +3647,13 @@ const App = () => {
                                   {statusText}
                                 </span>
                                 <div className="contact-actions">
-                                  <button className="btn-gradient action-compact" onClick={() => inviteContactToCall({ ...contact, ...presence })}>
+                                  <button className="btn-gradient action-compact" onClick={() => inviteContactToCall({ ...contact, ...presence, contactUid: contact.uid })}>
                                     {t.inviteToCall}
                                   </button>
-                                  <button className="btn-gradient danger-btn action-compact" onClick={() => removeContactFromList(contact)}>
+                                  <button className="btn-gradient danger-btn action-compact" onClick={() => removeContactFromList({ ...contact, contactUid: contact.uid })}>
                                     <PersonRemove fontSize="small" /> {t.removeContact}
                                   </button>
-                                  <button className="btn-gradient danger-btn action-compact" onClick={() => blockContact(contact)}>
+                                  <button className="btn-gradient danger-btn action-compact" onClick={() => blockContact({ ...contact, contactUid: contact.uid })}>
                                     <Block fontSize="small" /> {t.blockContact}
                                   </button>
                                 </div>
@@ -3658,7 +3742,7 @@ const App = () => {
                             <ContentCopy fontSize="small" />
                           </button>
                           <span>{t.expiresIn}</span>
-                          <div className="mode-grid">
+                          <div className="mode-grid search-result-actions">
                             <button
                               className="btn-gradient"
                               onClick={() => sendContactRequest(row.uid, row.profileId)}

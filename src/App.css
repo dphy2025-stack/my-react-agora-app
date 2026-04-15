@@ -473,7 +473,17 @@ input:-webkit-autofill:active {
 
 .search-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.search-row .btn-gradient {
+  min-width: 120px;
+}
+
+.search-result-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1827,6 +1837,20 @@ body[data-theme="light"] .call-card {
 
   .settings-panel {
     height: min(90vh, 760px);
+  }
+
+  .search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .search-row .btn-gradient {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .search-result-actions {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 
   .embedded-modal {
