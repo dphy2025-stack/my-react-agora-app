@@ -2651,17 +2651,28 @@ const App = () => {
             closeOnEsc: false,
           });
         }
-        const availableAfter = Number(roomReadyInvite.availableAfter || roomReadyInvite.roomCreatedAt || 0);
-        const joinDelay = Math.max(0, availableAfter - Date.now());
+        const joinDelay = Math.min(
+          2600,
+          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000))
+        );
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
         }
-        const joined = await joinCallInternal({
+        let joined = await joinCallInternal({
           mode: "join",
           roomName: roomReadyInvite.roomName,
           roomPassword: roomReadyInvite.roomPassword,
           allowFromLobbyStart: true,
         });
+        if (!joined) {
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          joined = await joinCallInternal({
+            mode: "join",
+            roomName: roomReadyInvite.roomName,
+            roomPassword: roomReadyInvite.roomPassword,
+            allowFromLobbyStart: true,
+          });
+        }
         if (incomingJoinDialogOpenRef.current) {
           swal.close();
           incomingJoinDialogOpenRef.current = false;
@@ -3039,7 +3050,7 @@ const App = () => {
           roomPassword: password,
           roomCreatedBy: profileUid,
           roomCreatedAt: Date.now(),
-          availableAfter: Date.now() + 2000,
+          receiverJoinDelayMs: 2000,
           respondedAt: Date.now(),
         }).catch(() => {});
         setOutgoingCallRequest(null);

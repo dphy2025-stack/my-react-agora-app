@@ -487,6 +487,8 @@ input:-webkit-autofill:active {
   gap: 8px;
   width: 100%;
   margin-top: 4px;
+  position: relative;
+  z-index: 2;
 }
 
 .search-result-actions .btn-gradient {
@@ -495,6 +497,10 @@ input:-webkit-autofill:active {
   min-height: 36px;
   white-space: normal;
   line-height: 1.2;
+}
+
+.settings-body .history-item.contact-card {
+  min-height: 0;
 }
 
 @media (max-width: 820px) {
