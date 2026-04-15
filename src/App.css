@@ -1122,6 +1122,7 @@ body[data-theme="light"] .chip-avatar-emoji {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .contact-name {
@@ -1134,6 +1135,9 @@ body[data-theme="light"] .chip-avatar-emoji {
   align-items: center;
   gap: 6px;
   color: #cde9f9;
+  flex-wrap: wrap;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .status-meta {
@@ -1153,6 +1157,10 @@ body[data-theme="light"] .chip-avatar-emoji {
   min-height: 34px;
   font-size: 11px;
   border-radius: 12px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .action-sm {
@@ -1735,6 +1743,65 @@ body[data-theme="light"] .call-card {
 
   .settings-tabs {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .embedded-modal {
+    padding: 8px;
+  }
+
+  .history-list {
+    max-height: 52vh;
+  }
+
+  .contact-card,
+  .request-card {
+    width: 100%;
+    min-height: 112px;
+    padding: 10px 10px 8px;
+  }
+
+  .contact-name {
+    font-size: 14px;
+  }
+
+  .mini-avatar.large,
+  .mini-avatar-emoji.large {
+    width: 46px;
+    height: 46px;
+    font-size: 21px;
+  }
+
+  .status-meta {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .contact-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .contact-actions .btn-gradient {
+    padding: 6px 4px;
+    min-height: 32px;
+    font-size: 10px;
+    border-radius: 10px;
+    gap: 4px;
+  }
+
+  .contact-actions .btn-gradient svg {
+    font-size: 14px !important;
+  }
+
+  .request-card .mode-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .request-card .btn-gradient {
+    min-height: 32px;
+    padding: 6px 8px;
+    font-size: 10px;
   }
 }
 

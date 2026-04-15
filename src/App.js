@@ -200,6 +200,11 @@ const hexToRgba = (hex, alpha) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const buildSoftCardStyle = (baseColor, startAlpha = 0.24, endAlpha = 0.14, borderLight = 0.2) => ({
+  background: `linear-gradient(130deg, ${hexToRgba(baseColor, startAlpha)} 0%, ${hexToRgba(baseColor, endAlpha)} 100%)`,
+  borderColor: shadeColor(baseColor, borderLight),
+});
+
 const calcAge = (birthDate) => {
   if (!birthDate) return "-";
   const date = new Date(birthDate);
@@ -3555,11 +3560,7 @@ const App = () => {
                     {contactRequests.length ? (
                       contactRequests.map((request) => (
                         <div className="history-item request-card" key={request.id} style={{
-                          background: `linear-gradient(130deg, ${hexToRgba(
-                            request.fromColor || DEFAULT_PROFILE_COLOR,
-                            0.28
-                          )} 0%, ${hexToRgba(request.fromColor || DEFAULT_PROFILE_COLOR, 0.16)} 100%)`,
-                          borderColor: shadeColor(request.fromColor || DEFAULT_PROFILE_COLOR, 0.24),
+                          ...buildSoftCardStyle(request.fromColor || DEFAULT_PROFILE_COLOR, 0.28, 0.16, 0.24),
                         }}>
                           <span className="contact-line">
                             {request.fromAvatar ? (
@@ -3604,11 +3605,7 @@ const App = () => {
                             className="history-item contact-card"
                             key={contact.uid}
                             style={{
-                              background: `linear-gradient(130deg, ${hexToRgba(cardColor, 0.24)} 0%, ${hexToRgba(
-                                cardColor,
-                                0.14
-                              )} 100%)`,
-                              borderColor: shadeColor(cardColor, 0.2),
+                              ...buildSoftCardStyle(cardColor, 0.24, 0.14, 0.2),
                             }}
                           >
                             <span className="contact-line">
