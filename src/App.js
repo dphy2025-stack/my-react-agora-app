@@ -1909,6 +1909,9 @@ const App = () => {
       localTrackRef.current?.close?.();
       localTrackRef.current = null;
       const msg = String(error?.message || t.backendTokenError);
+      if (/token cancel|agora token cancel/i.test(msg)) {
+        return false;
+      }
       const smartMessage =
         /failed to fetch|bad gateway|502|504/i.test(msg)
           ? `${t.backendNotReachable}\n\nTip: Make sure backend is running on port 5000 and ngrok tunnel is active.`
@@ -2653,7 +2656,7 @@ const App = () => {
         }
         const joinDelay = Math.min(
           2600,
-          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000))
+          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 850))
         );
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
@@ -3050,7 +3053,7 @@ const App = () => {
           roomPassword: password,
           roomCreatedBy: profileUid,
           roomCreatedAt: Date.now(),
-          receiverJoinDelayMs: 2000,
+          receiverJoinDelayMs: 850,
           respondedAt: Date.now(),
         }).catch(() => {});
         setOutgoingCallRequest(null);
@@ -3753,7 +3756,7 @@ const App = () => {
 
                   {searchResults.length
                     ? searchResults.map((row) => (
-                        <div className="history-item contact-card" key={`search_${row.uid}`}>
+                        <div className="history-item contact-card search-result-card" key={`search_${row.uid}`}>
                           <span className="contact-line">
                             {row.avatar ? (
                               <img src={row.avatar} alt={row.name || row.uid} className="mini-avatar large" />
