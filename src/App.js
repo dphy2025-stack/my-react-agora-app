@@ -104,7 +104,7 @@ const NETWORK_STATUS = {
   offline: "offline",
 };
 const INVITE_TTL_MS = 2 * 60 * 1000;
-const SPEAKING_LEVEL_THRESHOLD = 11;
+const SPEAKING_LEVEL_THRESHOLD = 17;
 const CALL_USER_STALE_MS = 90 * 1000;
 const RINGTONES = {
   ringtone_1: ringtone1,
