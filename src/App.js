@@ -1955,6 +1955,8 @@ const App = () => {
       localTrackRef.current?.stop?.();
       localTrackRef.current?.close?.();
       localTrackRef.current = null;
+      await client.leave().catch(() => {});
+      client.removeAllListeners();
       const msg = String(error?.message || t.backendTokenError);
       if (/token cancel|agora token cancel|agorartc.*leave/i.test(msg)) {
         return false;
@@ -2783,7 +2785,11 @@ const App = () => {
       const targetPresenceSnap = await get(ref(db, `uidDirectory/${targetUid}`)).catch(() => null);
       const targetPresence = targetPresenceSnap?.val?.() || {};
       const resolvedTargetProfileId = targetProfileId || targetPresence.profileId || "";
-      if (targetPresence.inCallRoomKey || targetPresence.inGroupLobbyId) {
+      const inOtherCall = Boolean(
+        targetPresence.inCallRoomKey &&
+        (!activeRoomKey || targetPresence.inCallRoomKey !== activeRoomKey)
+      );
+      if (inOtherCall || targetPresence.inGroupLobbyId) {
         await notify(t.cannotCallNow, "warning");
         return;
       }
@@ -2818,6 +2824,7 @@ const App = () => {
       profileName,
       profileUid,
       groupLobbyId,
+      activeRoomKey,
       t.alreadyBlocked,
       t.busyInLobby,
       t.blockedYou,
