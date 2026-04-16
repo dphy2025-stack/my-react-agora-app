@@ -388,6 +388,7 @@ const App = () => {
   const joinInFlightRef = useRef(false);
   const callProgressDialogOpenRef = useRef(false);
   const callProgressTimerRef = useRef(null);
+  const receiverJoinFlowRef = useRef({ callId: "", joining: false });
 
   const translations = {
     fa: {
@@ -744,15 +745,17 @@ const App = () => {
       if (callProgressTimerRef.current) {
         clearTimeout(callProgressTimerRef.current);
       }
-      callProgressDialogOpenRef.current = true;
-      openSwalSafely({
-        title,
-        text,
-        icon: "info",
-        buttons: false,
-        closeOnClickOutside: false,
-        closeOnEsc: false,
-      });
+      if (!callProgressDialogOpenRef.current) {
+        callProgressDialogOpenRef.current = true;
+        openSwalSafely({
+          title,
+          text,
+          icon: "info",
+          buttons: false,
+          closeOnClickOutside: false,
+          closeOnEsc: false,
+        });
+      }
       callProgressTimerRef.current = setTimeout(() => {
         if (inCall) return;
         if (callProgressDialogOpenRef.current) {
@@ -2669,6 +2672,23 @@ const App = () => {
     [joinCallInternal]
   );
 
+  const waitForInviteSenderReady = useCallback(async (roomNameValue, senderUid, timeoutMs = 45000) => {
+    if (!roomNameValue || !senderUid) return true;
+    const roomKey = toRoomKey(roomNameValue);
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const snap = await get(ref(db, `callUsers/${roomKey}`)).catch(() => null);
+      const users = snap?.val?.() || {};
+      const senderPresent = Object.values(users).some((user) => {
+        const normalized = normalizeCallUser(user);
+        return normalized.uid === senderUid;
+      });
+      if (senderPresent) return true;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+    return false;
+  }, []);
+
   const stopIncomingRingtone = useCallback(() => {
     if (!incomingRingtoneRef.current) return;
     incomingRingtoneRef.current.pause();
@@ -2759,8 +2779,15 @@ const App = () => {
 
       const tryJoinOnce = async () => {
         if (inCall) return;
+        if (receiverJoinFlowRef.current.callId === roomReadyInvite.id && receiverJoinFlowRef.current.joining) return;
+        receiverJoinFlowRef.current = { callId: roomReadyInvite.id, joining: true };
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
+        await waitForInviteSenderReady(
+          roomReadyInvite.roomName,
+          roomReadyInvite.fromUid || roomReadyInvite.from || "",
+          45000
+        );
         const joinDelay = Math.min(
           5000,
           Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000))
@@ -2786,9 +2813,11 @@ const App = () => {
         if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
         hideCallProgressDialog();
         if (!joined) {
+          receiverJoinFlowRef.current = { callId: "", joining: false };
           delete handledRoomReadyInviteRef.current[roomReadyInvite.id];
           return;
         }
+        receiverJoinFlowRef.current = { callId: "", joining: false };
         update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
           consumedAt: Date.now(),
           consumedBy: profileUid,
@@ -2800,7 +2829,7 @@ const App = () => {
       }, 100);
     });
     return () => unsubscribe();
-  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend]);
+  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend, waitForInviteSenderReady]);
 
   useEffect(() => {
     if (!profileUid) return undefined;
@@ -2822,8 +2851,15 @@ const App = () => {
 
       const tryJoinMirror = async () => {
         if (inCall) return;
+        if (receiverJoinFlowRef.current.callId === roomReadyInvite.id && receiverJoinFlowRef.current.joining) return;
+        receiverJoinFlowRef.current = { callId: roomReadyInvite.id, joining: true };
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
+        await waitForInviteSenderReady(
+          roomReadyInvite.roomName,
+          roomReadyInvite.fromUid || roomReadyInvite.from || "",
+          45000
+        );
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
@@ -2846,9 +2882,11 @@ const App = () => {
         if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
         hideCallProgressDialog();
         if (!joined) {
+          receiverJoinFlowRef.current = { callId: "", joining: false };
           delete handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`];
           return;
         }
+        receiverJoinFlowRef.current = { callId: "", joining: false };
         update(ref(db, `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`), {
           consumedAt: Date.now(),
           consumedBy: profileUid,
@@ -2860,7 +2898,7 @@ const App = () => {
       }, 100);
     });
     return () => unsubscribe();
-  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend]);
+  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend, waitForInviteSenderReady]);
 
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
