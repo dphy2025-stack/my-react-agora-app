@@ -1354,8 +1354,13 @@ body[data-theme="light"] .chip-avatar-emoji {
 }
 
 .contacts-scroll-list .contact-card {
-  min-height: 136px;
+  height: 168px;
+  min-height: 168px;
+  max-height: 168px;
   padding: 12px 12px 12px;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: space-between;
 }
 
 .contacts-scroll-list .contact-actions {
@@ -1976,6 +1981,12 @@ body[data-theme="light"] .call-card {
 
   .contacts-scroll-list {
     max-height: 54vh !important;
+  }
+
+  .contacts-scroll-list .contact-card {
+    height: 156px;
+    min-height: 156px;
+    max-height: 156px;
   }
 
   .contact-card,

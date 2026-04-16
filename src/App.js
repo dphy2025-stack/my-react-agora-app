@@ -2744,8 +2744,8 @@ const App = () => {
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
         const joinDelay = Math.min(
-          2600,
-          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 850))
+          5000,
+          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000))
         );
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
@@ -2806,7 +2806,7 @@ const App = () => {
         if (inCall) return;
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
-        const joinDelay = Math.min(2600, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 850)));
+        const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
         }
@@ -3186,26 +3186,13 @@ const App = () => {
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const room = randomRoomValue("room");
           const password = randomRoomValue("pw");
-          let joined = await triggerJoinWith("create", room, password);
-          if (!joined) {
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            joined = await triggerJoinWith("create", room, password);
-          }
-          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-          if (!joined) {
-            hideCallProgressDialog();
-            setOutgoingCallRequest(null);
-            processing = false;
-            return;
-          }
-          hideCallProgressDialog();
           const roomReadyPayload = {
             status: "room_ready",
             roomName: room,
             roomPassword: password,
             roomCreatedBy: profileUid,
             roomCreatedAt: Date.now(),
-            receiverJoinDelayMs: 850,
+            receiverJoinDelayMs: 2000,
             respondedAt: Date.now(),
           };
           const mirrorRef = ref(
@@ -3224,8 +3211,26 @@ const App = () => {
           ]);
           const published = publishResults.some((result) => result.status === "fulfilled");
           if (!published) {
+            hideCallProgressDialog();
             await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
+            setOutgoingCallRequest(null);
+            processing = false;
+            return;
           }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          let joined = await triggerJoinWith("create", room, password);
+          if (!joined) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            joined = await triggerJoinWith("create", room, password);
+          }
+          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
+          if (!joined) {
+            hideCallProgressDialog();
+            setOutgoingCallRequest(null);
+            processing = false;
+            return;
+          }
+          hideCallProgressDialog();
           setOutgoingCallRequest(null);
           processing = false;
           return;
