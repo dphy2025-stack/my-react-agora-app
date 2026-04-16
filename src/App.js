@@ -1639,6 +1639,41 @@ const App = () => {
   }, [client, inCall, t.good, t.medium, t.perfect, t.weak]);
 
   useEffect(() => {
+    if (!inCall) return undefined;
+    let cancelled = false;
+    const resubscribeRemoteAudio = async () => {
+      if (cancelled || !inCall) return;
+      const remotes = client.remoteUsers || [];
+      await Promise.allSettled(
+        remotes
+          .filter((remote) => remote && (remote.hasAudio || remote.audioTrack))
+          .map(async (remote) => {
+            try {
+              await client.subscribe(remote, "audio");
+              if (remote.audioTrack) {
+                if (stabilityMode === STABILITY_MODES.higher) {
+                  remote.audioTrack.setVolume?.(30);
+                } else if (stabilityMode === STABILITY_MODES.ultra) {
+                  remote.audioTrack.setVolume?.(22);
+                } else if (stabilityMode === STABILITY_MODES.high) {
+                  remote.audioTrack.setVolume?.(100);
+                }
+                remote.audioTrack.play();
+              }
+            } catch (_error) {
+              // keep polling; next cycle can recover
+            }
+          })
+      );
+    };
+    const interval = setInterval(resubscribeRemoteAudio, 6500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [client, inCall, stabilityMode]);
+
+  useEffect(() => {
     const handleBeforeUnload = (event) => {
       if (inCall) {
         event.preventDefault();
@@ -1818,6 +1853,38 @@ const App = () => {
     return true;
   }, [notify, profileId, profileUid, t.sessionInUse]);
 
+  const buildMicEncoderConfig = useCallback(() => {
+    if (isLegacyAndroid) {
+      return {
+        sampleRate: 16000,
+        stereo: false,
+        bitrate: 18,
+      };
+    }
+    if (stabilityMode === STABILITY_MODES.higher) {
+      return {
+        sampleRate: 16000,
+        stereo: false,
+        bitrate: 18,
+      };
+    }
+    if (stabilityMode === STABILITY_MODES.ultra) {
+      return {
+        sampleRate: 8000,
+        stereo: false,
+        bitrate: 12,
+      };
+    }
+    if (stabilityMode === STABILITY_MODES.high) {
+      return {
+        sampleRate: 48000,
+        stereo: true,
+        bitrate: 128,
+      };
+    }
+    return "speech_standard";
+  }, [isLegacyAndroid, stabilityMode]);
+
   const joinCallInternal = useCallback(async (options = {}) => {
     if (!profileLoaded) return false;
     if (joinInFlightRef.current) return false;
@@ -1880,32 +1947,7 @@ const App = () => {
     try {
       const safeRoomName = requestedRoomName;
       const safeRoomPassword = requestedRoomPassword;
-      const encoderConfig =
-        isLegacyAndroid
-          ? {
-              sampleRate: 16000,
-              stereo: false,
-              bitrate: 18,
-            }
-          : stabilityMode === STABILITY_MODES.higher
-          ? {
-              sampleRate: 16000,
-              stereo: false,
-              bitrate: 18,
-            }
-          : stabilityMode === STABILITY_MODES.ultra
-            ? {
-                sampleRate: 8000,
-                stereo: false,
-                bitrate: 12,
-              }
-          : stabilityMode === STABILITY_MODES.high
-            ? {
-                sampleRate: 48000,
-                stereo: true,
-                bitrate: 128,
-              }
-          : "speech_standard";
+      const encoderConfig = buildMicEncoderConfig();
 
       const [tokenPayload, localTrack] = await Promise.all([
         requestToken(requestedMode, safeRoomName, safeRoomPassword),
@@ -2000,17 +2042,28 @@ const App = () => {
         }
       };
 
-      client.on("user-published", async (user, mediaType) => {
-        try {
-          await subscribeAndPlay(user, mediaType);
-        } catch (_error) {
-          // keep call alive even if one subscribe fails
+      const subscribeAndPlayWithRetry = async (remoteUser, mediaType = "audio") => {
+        const maxAttempts = isLegacyAndroid ? 5 : 3;
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          try {
+            await subscribeAndPlay(remoteUser, mediaType);
+            return true;
+          } catch (_error) {
+            if (attempt < maxAttempts) {
+              await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
+            }
+          }
         }
+        return false;
+      };
+
+      client.on("user-published", async (user, mediaType) => {
+        await subscribeAndPlayWithRetry(user, mediaType);
       });
 
       client.on("user-joined", async (user) => {
         if (user.hasAudio) {
-          await subscribeAndPlay(user, "audio").catch(() => {});
+          await subscribeAndPlayWithRetry(user, "audio");
         }
       });
 
@@ -2021,7 +2074,7 @@ const App = () => {
       await Promise.allSettled(
         (client.remoteUsers || [])
           .filter((remote) => remote.uid !== joinedUid && (remote.hasAudio || remote.audioTrack))
-          .map((remote) => subscribeAndPlay(remote, "audio"))
+          .map((remote) => subscribeAndPlayWithRetry(remote, "audio"))
       );
 
       const renewToken = async () => {
@@ -2118,6 +2171,7 @@ const App = () => {
     inCall,
     groupLobbyId,
     isAnonymous,
+    buildMicEncoderConfig,
     ensureExclusiveSession,
       notify,
       t.busyInLobby,
@@ -2134,9 +2188,63 @@ const App = () => {
     setPendingGroupJoin(null);
   }, [inCall, joinCallInternal, joining, pendingGroupJoin]);
 
+  const ensureLocalTrackReady = useCallback(async () => {
+    if (!inCall) return localTrackRef.current;
+    const activeTrack = localTrackRef.current;
+    const activeMediaTrack = activeTrack?.getMediaStreamTrack?.();
+    if (activeTrack && activeMediaTrack && activeMediaTrack.readyState === "live") {
+      return activeTrack;
+    }
+
+    if (client.connectionState && client.connectionState !== "CONNECTED") {
+      return null;
+    }
+
+    try {
+      const recoveredTrack = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: buildMicEncoderConfig(),
+      });
+      const oldTrack = localTrackRef.current;
+      if (oldTrack) {
+        await client.unpublish([oldTrack]).catch(() => {});
+        oldTrack.stop?.();
+        oldTrack.close?.();
+      }
+      if (micLowered) {
+        recoveredTrack.setVolume?.(20);
+      } else {
+        recoveredTrack.setVolume?.(100);
+      }
+      await recoveredTrack.setEnabled(!(isMuted || adminMuteLocked)).catch(() => {});
+      await client.publish([recoveredTrack]);
+      localTrackRef.current = recoveredTrack;
+      return recoveredTrack;
+    } catch (_error) {
+      return null;
+    }
+  }, [adminMuteLocked, buildMicEncoderConfig, client, inCall, isMuted, micLowered]);
+
+  useEffect(() => {
+    if (!inCall) return undefined;
+    let cancelled = false;
+    const probe = async () => {
+      if (cancelled || !inCall) return;
+      await ensureLocalTrackReady();
+    };
+    probe();
+    const interval = setInterval(probe, 5500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [ensureLocalTrackReady, inCall]);
+
   const toggleMute = useCallback(async () => {
-    const track = localTrackRef.current;
-    if (!track) return;
+    const track = (await ensureLocalTrackReady()) || localTrackRef.current;
+    if (!track) {
+      await notify(t.waitingBackend, "warning", "", { autoCloseMs: 1800 });
+      return;
+    }
     if (adminMuteLocked && isMuted) {
       await notify(t.onlyAdminCanUnmute, "warning");
       return;
@@ -2146,11 +2254,14 @@ const App = () => {
     if (!isMuted && userUID !== null) {
       setSpeakingUsers((prev) => ({ ...prev, [userUID]: false }));
     }
-  }, [adminMuteLocked, isMuted, notify, t.onlyAdminCanUnmute, userUID]);
+  }, [adminMuteLocked, ensureLocalTrackReady, isMuted, notify, t.onlyAdminCanUnmute, t.waitingBackend, userUID]);
 
-  const toggleMicVolume = useCallback(() => {
-    const track = localTrackRef.current;
-    if (!track) return;
+  const toggleMicVolume = useCallback(async () => {
+    const track = (await ensureLocalTrackReady()) || localTrackRef.current;
+    if (!track) {
+      await notify(t.waitingBackend, "warning", "", { autoCloseMs: 1800 });
+      return;
+    }
 
     if (micLowered) {
       track.setVolume(100);
@@ -2159,10 +2270,10 @@ const App = () => {
       track.setVolume(20);
       setMicLowered(true);
     }
-  }, [micLowered]);
+  }, [ensureLocalTrackReady, micLowered, notify, t.waitingBackend]);
 
   const toggleRecording = useCallback(async () => {
-    const track = localTrackRef.current;
+    const track = (await ensureLocalTrackReady()) || localTrackRef.current;
     if (!track || !activeRoomKey) return;
 
     if (isRecording) {
@@ -2177,9 +2288,24 @@ const App = () => {
       return;
     }
 
-    const recorder = new MediaRecorder(new MediaStream([track.getMediaStreamTrack()]), {
-      mimeType: "audio/webm",
-    });
+    if (typeof MediaRecorder === "undefined") {
+      await notify(t.backendTokenError, "warning", "", { autoCloseMs: 1800 });
+      return;
+    }
+    const preferredMimeType = "audio/webm";
+    const recorderOptions =
+      MediaRecorder.isTypeSupported?.(preferredMimeType)
+        ? { mimeType: preferredMimeType }
+        : undefined;
+    let recorder;
+    try {
+      recorder = recorderOptions
+        ? new MediaRecorder(new MediaStream([track.getMediaStreamTrack()]), recorderOptions)
+        : new MediaRecorder(new MediaStream([track.getMediaStreamTrack()]));
+    } catch (_error) {
+      await notify(t.backendTokenError, "warning", "", { autoCloseMs: 1800 });
+      return;
+    }
     const chunks = [];
 
     recorder.ondataavailable = (event) => {
@@ -2206,7 +2332,7 @@ const App = () => {
     mediaRecorderRef.current = recorder;
     setIsRecording(true);
     await notify(t.recordingStarted, "success", "", { autoCloseMs: 2000 });
-  }, [activeRoomKey, isRecording, notify, t.recordingStarted, t.recordingStopped, userUID]);
+  }, [activeRoomKey, ensureLocalTrackReady, isRecording, notify, t.backendTokenError, t.recordingStarted, t.recordingStopped, userUID]);
 
   const finalizeCallHistory = useCallback(async () => {
     if (!profileId || !callStartedAt || !activeRoomName) return;
