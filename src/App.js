@@ -3587,7 +3587,6 @@ const App = () => {
       }
     });
     return () => {
-      delete outgoingProcessMap[processKey];
       unsubscribe();
     };
   }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWithRetries]);
