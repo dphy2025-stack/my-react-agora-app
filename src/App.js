@@ -416,6 +416,7 @@ const App = () => {
   const tokenEndpointCacheRef = useRef({});
   const inCallHardRef = useRef(false);
   const outgoingInviteProcessRef = useRef({});
+  const autoJoinCooldownUntilRef = useRef(0);
 
   const translations = {
     fa: {
@@ -1914,6 +1915,7 @@ const App = () => {
   }, [isLegacyAndroid, stabilityMode]);
 
   const joinCallInternal = useCallback(async (options = {}) => {
+    const suppressErrorNotify = Boolean(options?.suppressErrorNotify);
     if (!profileLoaded) return false;
     if (joinInFlightRef.current) return false;
     if (joining || inCall || inCallHardRef.current) return false;
@@ -2196,6 +2198,9 @@ const App = () => {
         /failed to fetch|bad gateway|502|504/i.test(msg)
           ? `${t.backendNotReachable}\n\nTip: Make sure backend is running on port 5000 and ngrok tunnel is active.`
           : msg;
+      if (suppressErrorNotify) {
+        return false;
+      }
       await notify(smartMessage, "error");
       return false;
     } finally {
@@ -2474,6 +2479,9 @@ const App = () => {
   const leaveCall = useCallback(async () => {
     const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
     if (!ok) return;
+    autoJoinCooldownUntilRef.current = Date.now() + 15000;
+    incomingJoinDialogOpenRef.current = false;
+    hideCallProgressDialog();
     try {
       mediaRecorderRef.current?.stop();
       localTrackRef.current?.stop();
@@ -2519,7 +2527,7 @@ const App = () => {
       setPendingGroupJoin(null);
       speakingSecondsRef.current = 0;
     }
-  }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
+  }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
 
   const inviteCode = useMemo(() => {
     if (!activeRoomName || !roomPassword.trim()) return "-";
@@ -2930,6 +2938,7 @@ const App = () => {
           mode,
           roomName: nextRoomName,
           roomPassword: nextRoomPassword,
+          suppressErrorNotify: attempt < maxAttempts,
           ...extraOptions,
         });
         if (joined) return true;
@@ -2980,6 +2989,7 @@ const App = () => {
   const processReceiverRoomReadyInvite = useCallback(
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
+      if (Date.now() < autoJoinCooldownUntilRef.current) return;
       if (inCall) return;
       const flowCallId = `recv_${roomReadyInvite.id}`;
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
@@ -3120,6 +3130,7 @@ const App = () => {
     if (!profileUid) return undefined;
     const inviteRef = ref(db, `invites/${profileUid}`);
     const unsubscribe = onValue(inviteRef, (snapshot) => {
+      if (Date.now() < autoJoinCooldownUntilRef.current) return;
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...value }));
       const roomReadyInvite = rows.find(
@@ -3150,6 +3161,7 @@ const App = () => {
     if (!profileUid) return undefined;
     const readyRef = ref(db, `roomReadyByInvite/${profileUid}`);
     const unsubscribe = onValue(readyRef, (snapshot) => {
+      if (Date.now() < autoJoinCooldownUntilRef.current) return;
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...(value || {}) }));
       const roomReadyInvite = rows.find(
