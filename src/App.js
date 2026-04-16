@@ -139,6 +139,27 @@ const withTimeout = async (url, options = {}, timeoutMs = 4000) => {
   }
 };
 
+const applyTrackMutedState = async (track, muted) => {
+  if (!track) return false;
+  if (typeof track.setMuted === "function") {
+    try {
+      await track.setMuted(Boolean(muted));
+      return true;
+    } catch (_error) {
+      // fallback below
+    }
+  }
+  if (typeof track.setEnabled === "function") {
+    try {
+      await track.setEnabled(!Boolean(muted));
+      return true;
+    } catch (_error) {
+      return false;
+    }
+  }
+  return false;
+};
+
 const qualityLabel = (quality, t) => {
   if (quality <= 1) return t.perfect;
   if (quality <= 3) return t.good;
@@ -866,16 +887,19 @@ const App = () => {
 
         if (data) {
           const existingUid = data.uid || generatePublicUid();
+          const loadedName = String(data.name || "").trim();
+          const loadedAnonymous = Boolean(data.isAnonymous);
+          const onboardingDone = localStorage.getItem(BACKEND_ONBOARDING_KEY) === "1";
           setProfileUid(existingUid);
-          setProfileName(data.name || "");
-          setUsername(data.name || "");
+          setProfileName(loadedName);
+          setUsername(loadedName);
           setProfileAvatar(data.avatar || "");
           setProfileEmoji(data.emoji || "");
           setSelectedRingtone(data.ringtoneId || "ringtone_1");
           setProfileColor(data.color || DEFAULT_PROFILE_COLOR);
           const loadedMode = data.stabilityMode || STABILITY_MODES.balanced;
           setStabilityMode(loadedMode === "ultra" ? STABILITY_MODES.higher : loadedMode);
-          setIsAnonymous(Boolean(data.isAnonymous));
+          setIsAnonymous(loadedAnonymous);
           setProfileGender(data.gender || "not_set");
           setProfileBirthDate(data.birthDate || "");
           setProfileCallSeconds(Number(data.totalCallSeconds || 0));
@@ -886,8 +910,9 @@ const App = () => {
           if (!data.uid) {
             await update(ref(db, `profiles/${profileId}`), { uid: existingUid });
           }
-          setShouldAutoOpenBackendAfterProfileSave(false);
-          setScreen("entry");
+          const hasValidProfileGate = Boolean(loadedAnonymous || loadedName);
+          setShouldAutoOpenBackendAfterProfileSave(!hasValidProfileGate && !onboardingDone);
+          setScreen(hasValidProfileGate ? "entry" : "profile");
         } else {
           setProfileUid(generatePublicUid());
           const onboardingDone = localStorage.getItem(BACKEND_ONBOARDING_KEY) === "1";
@@ -1564,12 +1589,12 @@ const App = () => {
       const action = data.action || "mute";
       if (localTrackRef.current) {
         if (action === "mute") {
-          await localTrackRef.current.setEnabled(false).catch(() => {});
+          await applyTrackMutedState(localTrackRef.current, true);
           setIsMuted(true);
           setAdminMuteLocked(true);
           await update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), { adminMuted: true }).catch(() => {});
         } else if (action === "unmute") {
-          await localTrackRef.current.setEnabled(true).catch(() => {});
+          await applyTrackMutedState(localTrackRef.current, false);
           setIsMuted(false);
           setAdminMuteLocked(false);
           await update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), { adminMuted: false }).catch(() => {});
@@ -1976,7 +2001,26 @@ const App = () => {
       activeSessionIdRef.current = `${Date.now()}_${uid}`;
 
       localTrackRef.current = localTrack;
-      await client.publish([localTrack]);
+      localTrack.setVolume?.(micLowered ? 20 : 100);
+      await applyTrackMutedState(localTrack, false);
+      let published = false;
+      const publishAttempts = isLegacyAndroid ? 4 : 3;
+      for (let attempt = 1; attempt <= publishAttempts; attempt += 1) {
+        try {
+          await client.publish([localTrack]);
+          published = true;
+          break;
+        } catch (_error) {
+          if (attempt < publishAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+          }
+        }
+      }
+      if (!published) {
+        throw new Error(t.backendTokenError);
+      }
+      setIsMuted(false);
+      setMicLowered(false);
       client.enableAudioVolumeIndicator();
       client.removeAllListeners();
 
@@ -2167,6 +2211,7 @@ const App = () => {
     profileUid,
     stabilityMode,
     isLegacyAndroid,
+    micLowered,
     joining,
     inCall,
     groupLobbyId,
@@ -2215,7 +2260,7 @@ const App = () => {
       } else {
         recoveredTrack.setVolume?.(100);
       }
-      await recoveredTrack.setEnabled(!(isMuted || adminMuteLocked)).catch(() => {});
+      await applyTrackMutedState(recoveredTrack, isMuted || adminMuteLocked);
       await client.publish([recoveredTrack]);
       localTrackRef.current = recoveredTrack;
       return recoveredTrack;
@@ -2249,12 +2294,17 @@ const App = () => {
       await notify(t.onlyAdminCanUnmute, "warning");
       return;
     }
-    await track.setEnabled(isMuted);
+    const nextMuted = !isMuted;
+    const changed = await applyTrackMutedState(track, nextMuted);
+    if (!changed) {
+      await notify(t.backendTokenError, "warning", "", { autoCloseMs: 1800 });
+      return;
+    }
     setIsMuted((prev) => !prev);
     if (!isMuted && userUID !== null) {
       setSpeakingUsers((prev) => ({ ...prev, [userUID]: false }));
     }
-  }, [adminMuteLocked, ensureLocalTrackReady, isMuted, notify, t.onlyAdminCanUnmute, t.waitingBackend, userUID]);
+  }, [adminMuteLocked, ensureLocalTrackReady, isMuted, notify, t.backendTokenError, t.onlyAdminCanUnmute, t.waitingBackend, userUID]);
 
   const toggleMicVolume = useCallback(async () => {
     const track = (await ensureLocalTrackReady()) || localTrackRef.current;
@@ -2264,13 +2314,23 @@ const App = () => {
     }
 
     if (micLowered) {
-      track.setVolume(100);
+      try {
+        track.setVolume?.(100);
+      } catch (_error) {
+        await notify(t.backendTokenError, "warning", "", { autoCloseMs: 1800 });
+        return;
+      }
       setMicLowered(false);
     } else {
-      track.setVolume(20);
+      try {
+        track.setVolume?.(20);
+      } catch (_error) {
+        await notify(t.backendTokenError, "warning", "", { autoCloseMs: 1800 });
+        return;
+      }
       setMicLowered(true);
     }
-  }, [ensureLocalTrackReady, micLowered, notify, t.waitingBackend]);
+  }, [ensureLocalTrackReady, micLowered, notify, t.backendTokenError, t.waitingBackend]);
 
   const toggleRecording = useCallback(async () => {
     const track = (await ensureLocalTrackReady()) || localTrackRef.current;
@@ -3746,7 +3806,7 @@ const App = () => {
             {profileSaving ? t.waitingBackend : t.profileSave}
           </button>
 
-          {profileLoaded ? (
+          {profileLoaded && (isAnonymous || Boolean(profileName.trim())) ? (
             <button className="btn-gradient" onClick={() => setScreen("entry")}>
               {t.adminClose}
             </button>
