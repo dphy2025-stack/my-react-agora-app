@@ -2964,6 +2964,7 @@ const App = () => {
         return normalized.uid === senderUid;
       });
       if (senderPresent) return true;
+      if (Object.keys(users).length > 0 && Date.now() - started > 12000) return true;
       await new Promise((resolve) => setTimeout(resolve, 800));
     }
     return false;
@@ -3015,7 +3016,10 @@ const App = () => {
           return;
         }
 
-        const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
+        const receiverJoinDelayMs = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
+        const senderJoinedAt = Number(roomReadyInvite.senderJoinedAt || roomReadyInvite.roomCreatedAt || 0);
+        const elapsedAfterSenderJoin = senderJoinedAt > 0 ? Date.now() - senderJoinedAt : 0;
+        const joinDelay = Math.max(0, receiverJoinDelayMs - Math.max(0, elapsedAfterSenderJoin));
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
         }
@@ -3531,12 +3535,21 @@ const App = () => {
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const room = randomRoomValue("room");
           const password = randomRoomValue("pw");
+          const joined = await triggerJoinWithRetries("create", room, password);
+          if (!joined) {
+            hideCallProgressDialog();
+            setOutgoingCallRequest(null);
+            delete outgoingProcessMap[processKey];
+            return;
+          }
+          const senderJoinedAt = Date.now();
           const roomReadyPayload = {
             status: "room_ready",
             roomName: room,
             roomPassword: password,
             roomCreatedBy: profileUid,
-            roomCreatedAt: Date.now(),
+            roomCreatedAt: senderJoinedAt,
+            senderJoinedAt,
             receiverJoinDelayMs: 2000,
             respondedAt: Date.now(),
           };
@@ -3544,29 +3557,26 @@ const App = () => {
             db,
             `roomReadyByInvite/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`
           );
-          const publishResults = await Promise.allSettled([
-            update(inviteRef, roomReadyPayload),
-            set(mirrorRef, {
-              ...roomReadyPayload,
-              toUid: outgoingCallRequest.targetUid,
-              fromUid: profileUid,
-              inviteId: outgoingCallRequest.inviteId,
-              createdAt: Date.now(),
-            }),
-          ]);
-          const published = publishResults.some((result) => result.status === "fulfilled");
+          let published = false;
+          for (let attempt = 1; attempt <= 4; attempt += 1) {
+            const publishResults = await Promise.allSettled([
+              update(inviteRef, roomReadyPayload),
+              set(mirrorRef, {
+                ...roomReadyPayload,
+                toUid: outgoingCallRequest.targetUid,
+                fromUid: profileUid,
+                inviteId: outgoingCallRequest.inviteId,
+                createdAt: Date.now(),
+              }),
+            ]);
+            published = publishResults.some((result) => result.status === "fulfilled");
+            if (published) break;
+            await new Promise((resolve) => setTimeout(resolve, 260 * attempt));
+          }
+          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!published) {
             hideCallProgressDialog();
             await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
-            setOutgoingCallRequest(null);
-            delete outgoingProcessMap[processKey];
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          const joined = await triggerJoinWithRetries("create", room, password);
-          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-          if (!joined) {
-            hideCallProgressDialog();
             setOutgoingCallRequest(null);
             delete outgoingProcessMap[processKey];
             return;
