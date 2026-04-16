@@ -2784,6 +2784,66 @@ const App = () => {
     return () => unsubscribe();
   }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend]);
 
+  useEffect(() => {
+    if (!profileUid) return undefined;
+    const readyRef = ref(db, `roomReadyByInvite/${profileUid}`);
+    const unsubscribe = onValue(readyRef, (snapshot) => {
+      const now = Date.now();
+      const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...(value || {}) }));
+      const roomReadyInvite = rows.find(
+        (item) =>
+          item.roomName &&
+          item.roomPassword &&
+          item.toUid === profileUid &&
+          now - Number(item.roomCreatedAt || item.respondedAt || item.createdAt || 0) <= INVITE_TTL_MS &&
+          !item.consumedAt
+      );
+      if (!roomReadyInvite) return;
+      if (handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`]) return;
+      handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`] = true;
+
+      const tryJoinMirror = async () => {
+        if (inCall) return;
+        if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
+        showCallProgressDialog(t.incomingCall, t.waitingBackend);
+        const joinDelay = Math.min(2600, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 850)));
+        if (joinDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, joinDelay));
+        }
+        let joined = await joinCallInternal({
+          mode: "join",
+          roomName: roomReadyInvite.roomName,
+          roomPassword: roomReadyInvite.roomPassword,
+          allowFromLobbyStart: true,
+        });
+        if (!joined) {
+          await new Promise((resolve) => setTimeout(resolve, 450));
+          joined = await joinCallInternal({
+            mode: "join",
+            roomName: roomReadyInvite.roomName,
+            roomPassword: roomReadyInvite.roomPassword,
+            allowFromLobbyStart: true,
+          });
+        }
+        if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
+        hideCallProgressDialog();
+        if (!joined) {
+          delete handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`];
+          return;
+        }
+        update(ref(db, `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`), {
+          consumedAt: Date.now(),
+          consumedBy: profileUid,
+        }).catch(() => {});
+      };
+
+      setTimeout(() => {
+        tryJoinMirror();
+      }, 100);
+    });
+    return () => unsubscribe();
+  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend]);
+
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
     if (!query) return;
@@ -3126,7 +3186,11 @@ const App = () => {
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const room = randomRoomValue("room");
           const password = randomRoomValue("pw");
-          const joined = await triggerJoinWith("create", room, password);
+          let joined = await triggerJoinWith("create", room, password);
+          if (!joined) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            joined = await triggerJoinWith("create", room, password);
+          }
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
@@ -3135,7 +3199,7 @@ const App = () => {
             return;
           }
           hideCallProgressDialog();
-          await update(inviteRef, {
+          const roomReadyPayload = {
             status: "room_ready",
             roomName: room,
             roomPassword: password,
@@ -3143,7 +3207,25 @@ const App = () => {
             roomCreatedAt: Date.now(),
             receiverJoinDelayMs: 850,
             respondedAt: Date.now(),
-          }).catch(() => {});
+          };
+          const mirrorRef = ref(
+            db,
+            `roomReadyByInvite/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`
+          );
+          const publishResults = await Promise.allSettled([
+            update(inviteRef, roomReadyPayload),
+            set(mirrorRef, {
+              ...roomReadyPayload,
+              toUid: outgoingCallRequest.targetUid,
+              fromUid: profileUid,
+              inviteId: outgoingCallRequest.inviteId,
+              createdAt: Date.now(),
+            }),
+          ]);
+          const published = publishResults.some((result) => result.status === "fulfilled");
+          if (!published) {
+            await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
+          }
           setOutgoingCallRequest(null);
           processing = false;
           return;
@@ -3689,7 +3771,7 @@ const App = () => {
                   </button>
                   {showHistoryPanel ? (
                     <div className="embedded-modal">
-                      <div className="history-list">
+                      <div className="history-list contacts-scroll-list">
                         {profileHistory.length ? (
                           profileHistory.slice(0, 12).map((item) => (
                             <div className="history-item call-history-item" key={item.id}>

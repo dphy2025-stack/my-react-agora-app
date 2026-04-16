@@ -1336,6 +1336,21 @@ body[data-theme="light"] .chip-avatar-emoji {
   padding-right: 4px;
 }
 
+.contacts-scroll-list {
+  max-height: min(58vh, 520px) !important;
+  overflow-y: auto !important;
+  padding-right: 6px;
+}
+
+.contacts-scroll-list .contact-card {
+  min-height: 132px;
+  padding: 12px 12px 10px;
+}
+
+.contacts-scroll-list .contact-actions {
+  margin-top: 6px;
+}
+
 .action-compact {
   width: 100%;
 }
@@ -1946,6 +1961,10 @@ body[data-theme="light"] .call-card {
 
   .embedded-modal .history-list {
     max-height: 54vh;
+  }
+
+  .contacts-scroll-list {
+    max-height: 56vh !important;
   }
 
   .contact-card,
