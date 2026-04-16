@@ -72,6 +72,7 @@ const LOCAL_BACKEND_URL = "http://localhost:5000";
 const TOKEN_ENDPOINT_PATHS = ["/api/rooms/token", "/rooms/token", "/api/token"];
 const PROFILE_LOADING_MIN_MS = 3000;
 const ACTIVE_SESSION_TTL_MS = 20 * 1000;
+const ROOM_LIFETIME_MS = 3 * 60 * 60 * 1000;
 const DEFAULT_PROFILE_COLOR = "#10b981";
 const PROFILE_COLORS = [
   "#10b981",
@@ -413,6 +414,8 @@ const App = () => {
   const callProgressContentRef = useRef("");
   const receiverJoinFlowRef = useRef({ callId: "", joining: false });
   const tokenEndpointCacheRef = useRef({});
+  const inCallHardRef = useRef(false);
+  const outgoingInviteProcessRef = useRef({});
 
   const translations = {
     fa: {
@@ -1913,7 +1916,7 @@ const App = () => {
   const joinCallInternal = useCallback(async (options = {}) => {
     if (!profileLoaded) return false;
     if (joinInFlightRef.current) return false;
-    if (joining || inCall) return false;
+    if (joining || inCall || inCallHardRef.current) return false;
     if (client.connectionState && client.connectionState !== "DISCONNECTED") {
       await client.leave().catch(() => {});
       client.removeAllListeners();
@@ -1974,10 +1977,24 @@ const App = () => {
       const safeRoomPassword = requestedRoomPassword;
       const encoderConfig = buildMicEncoderConfig();
 
-      const [tokenPayload, localTrack] = await Promise.all([
-        requestToken(requestedMode, safeRoomName, safeRoomPassword),
-        AgoraRTC.createMicrophoneAudioTrack({ encoderConfig }),
-      ]);
+      const localTrack = await AgoraRTC.createMicrophoneAudioTrack({ encoderConfig });
+      let tokenPayload = null;
+      const tokenAttempts = isLegacyAndroid ? 5 : 4;
+      for (let attempt = 1; attempt <= tokenAttempts; attempt += 1) {
+        try {
+          tokenPayload = await requestToken(requestedMode, safeRoomName, safeRoomPassword);
+          if (tokenPayload?.token) break;
+        } catch (_error) {
+          if (attempt < tokenAttempts) {
+            await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+          }
+        }
+      }
+      if (!tokenPayload?.token) {
+        localTrack.stop?.();
+        localTrack.close?.();
+        throw new Error(t.backendTokenError);
+      }
 
       const { token, uid, roomName: finalRoomName } = tokenPayload;
       const finalName = finalRoomName || safeRoomName;
@@ -2052,7 +2069,7 @@ const App = () => {
         createdAt: existingMeta.createdAt || Date.now(),
         createdByUid: existingMeta.createdByUid || (requestedMode === "create" ? profileUid : ""),
         isGroupCall: Boolean(existingMeta.isGroupCall || options?.isGroupCall),
-        expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+        expiresAt: Date.now() + ROOM_LIFETIME_MS,
       });
 
       client.on("volume-indicator", (levels) => {
@@ -2158,12 +2175,14 @@ const App = () => {
       setGroupLobbyMeta(null);
       setGroupLobbyMembers({});
       setShowGroupLobby(false);
+      inCallHardRef.current = true;
       setInCall(true);
       setIsGroupCallSession(Boolean(existingMeta.isGroupCall || options?.isGroupCall));
       setAdminMuteLocked(false);
       setConnectionQuality("-");
       return true;
     } catch (error) {
+      inCallHardRef.current = false;
       localTrackRef.current?.stop?.();
       localTrackRef.current?.close?.();
       localTrackRef.current = null;
@@ -2232,6 +2251,10 @@ const App = () => {
     joinCallInternal(pendingGroupJoin);
     setPendingGroupJoin(null);
   }, [inCall, joinCallInternal, joining, pendingGroupJoin]);
+
+  useEffect(() => {
+    inCallHardRef.current = Boolean(inCall);
+  }, [inCall]);
 
   const ensureLocalTrackReady = useCallback(async () => {
     if (!inCall) return localTrackRef.current;
@@ -2967,7 +2990,20 @@ const App = () => {
       try {
         const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
         const senderWaitTimeout = isLegacyAndroid ? 70000 : 50000;
-        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, senderWaitTimeout);
+        let senderReady = await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, senderWaitTimeout);
+        if (!senderReady) {
+          senderReady = await waitForInviteSenderReady(
+            roomReadyInvite.roomName,
+            senderUid,
+            isLegacyAndroid ? 55000 : 35000
+          );
+        }
+        if (!senderReady) {
+          if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
+          hideCallProgressDialog();
+          notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 }).catch(() => {});
+          return;
+        }
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
@@ -3096,13 +3132,14 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
-      if (handledRoomReadyInviteRef.current[roomReadyInvite.id]) return;
-      handledRoomReadyInviteRef.current[roomReadyInvite.id] = true;
+      const globalHandledKey = `any_${roomReadyInvite.id}`;
+      if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
+      handledRoomReadyInviteRef.current[globalHandledKey] = true;
       setTimeout(() => {
         processReceiverRoomReadyInvite(
           roomReadyInvite,
           `invites/${profileUid}/${roomReadyInvite.id}`,
-          roomReadyInvite.id
+          globalHandledKey
         );
       }, 100);
     });
@@ -3124,13 +3161,14 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
-      if (handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`]) return;
-      handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`] = true;
+      const globalHandledKey = `any_${roomReadyInvite.id}`;
+      if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
+      handledRoomReadyInviteRef.current[globalHandledKey] = true;
       setTimeout(() => {
         processReceiverRoomReadyInvite(
           roomReadyInvite,
           `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`,
-          `mirror_${roomReadyInvite.id}`
+          globalHandledKey
         );
       }, 100);
     });
@@ -3442,9 +3480,11 @@ const App = () => {
 
   useEffect(() => {
     if (!outgoingCallRequest?.targetUid || !outgoingCallRequest?.inviteId || !profileUid) return undefined;
+    const outgoingProcessMap = outgoingInviteProcessRef.current;
     const inviteRef = ref(db, `invites/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`);
-    let processing = false;
+    const processKey = `${outgoingCallRequest.targetUid}_${outgoingCallRequest.inviteId}`;
     const unsubscribe = onValue(inviteRef, async (snapshot) => {
+      if (outgoingProcessMap[processKey]) return;
       try {
         const item = snapshot.val();
         if (!item) {
@@ -3471,11 +3511,11 @@ const App = () => {
           await notify(t.requestNoAcceptExpired, "info", "", { autoCloseMs: 2200 });
           return;
         }
-        if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
+        if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName) {
           if (item.fromUid && item.fromUid !== profileUid) {
             return;
           }
-          processing = true;
+          outgoingProcessMap[processKey] = true;
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const room = randomRoomValue("room");
           const password = randomRoomValue("pw");
@@ -3507,7 +3547,7 @@ const App = () => {
             hideCallProgressDialog();
             await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
             setOutgoingCallRequest(null);
-            processing = false;
+            delete outgoingProcessMap[processKey];
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -3516,28 +3556,28 @@ const App = () => {
           if (!joined) {
             hideCallProgressDialog();
             setOutgoingCallRequest(null);
-            processing = false;
+            delete outgoingProcessMap[processKey];
             return;
           }
           hideCallProgressDialog();
           setOutgoingCallRequest(null);
-          processing = false;
+          delete outgoingProcessMap[processKey];
           return;
         }
-        if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
-          processing = true;
+        if (item.status === "room_ready" && item.roomName && item.roomPassword) {
+          outgoingProcessMap[processKey] = true;
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const joined = await triggerJoinWithRetries("join", item.roomName, item.roomPassword);
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
             setOutgoingCallRequest(null);
-            processing = false;
+            delete outgoingProcessMap[processKey];
             return;
           }
           hideCallProgressDialog();
           setOutgoingCallRequest(null);
-          processing = false;
+          delete outgoingProcessMap[processKey];
           return;
         }
       } catch (_error) {
@@ -3547,11 +3587,14 @@ const App = () => {
           outgoingRequestDialogOpenRef.current = false;
         }
         setOutgoingCallRequest(null);
-        processing = false;
+        delete outgoingProcessMap[processKey];
         await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
       }
     });
-    return () => unsubscribe();
+    return () => {
+      delete outgoingProcessMap[processKey];
+      unsubscribe();
+    };
   }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWithRetries]);
 
   useEffect(() => {
