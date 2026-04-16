@@ -3006,22 +3006,18 @@ const App = () => {
         if (joinDelay > 0) {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
         }
-
-        let joined = await triggerJoinWithRetries(
-          "join",
-          roomReadyInvite.roomName,
-          roomReadyInvite.roomPassword,
-          { allowFromLobbyStart: true }
-        );
-
-        if (!joined && !inCall) {
-          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 25000);
+        let joined = false;
+        const receiverJoinDeadline = Date.now() + (isLegacyAndroid ? 120000 : 90000);
+        while (!joined && !inCall && Date.now() < receiverJoinDeadline) {
           joined = await triggerJoinWithRetries(
             "join",
             roomReadyInvite.roomName,
             roomReadyInvite.roomPassword,
             { allowFromLobbyStart: true }
           );
+          if (joined || inCall) break;
+          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 12000);
+          await new Promise((resolve) => setTimeout(resolve, 1200));
         }
 
         if (joined || inCall) {
