@@ -3958,7 +3958,7 @@ const App = () => {
                               : `${t.contactsOffline} - ${t.lastSeen}: ${formatLastSeen(presence.lastSeen || contact.lastSeen)}`;
                             return (
                               <div
-                                className="history-item contact-card"
+                                className={`history-item contact-card ${blockedContacts[contact.uid] ? "is-blocked" : ""}`}
                                 key={contact.uid}
                                 style={{
                                   ...buildSoftCardStyle(cardColor, 0.24, 0.14, 0.2),
