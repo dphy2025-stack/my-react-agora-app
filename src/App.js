@@ -389,6 +389,7 @@ const App = () => {
   const joinInFlightRef = useRef(false);
   const callProgressDialogOpenRef = useRef(false);
   const callProgressTimerRef = useRef(null);
+  const callProgressContentRef = useRef("");
   const receiverJoinFlowRef = useRef({ callId: "", joining: false });
   const tokenEndpointCacheRef = useRef({});
 
@@ -736,6 +737,7 @@ const App = () => {
       clearTimeout(callProgressTimerRef.current);
       callProgressTimerRef.current = null;
     }
+    callProgressContentRef.current = "";
     if (callProgressDialogOpenRef.current) {
       closeSwalSafely();
       callProgressDialogOpenRef.current = false;
@@ -744,28 +746,35 @@ const App = () => {
 
   const showCallProgressDialog = useCallback(
     (title, text) => {
+      const nextContentKey = `${title || ""}__${text || ""}`;
+      if (callProgressDialogOpenRef.current && callProgressContentRef.current === nextContentKey) {
+        return;
+      }
       if (callProgressTimerRef.current) {
         clearTimeout(callProgressTimerRef.current);
       }
-      if (!callProgressDialogOpenRef.current) {
-        callProgressDialogOpenRef.current = true;
-        openSwalSafely({
-          title,
-          text,
-          icon: "info",
-          buttons: false,
-          closeOnClickOutside: false,
-          closeOnEsc: false,
-        });
+      if (callProgressDialogOpenRef.current) {
+        closeSwalSafely();
       }
+      callProgressDialogOpenRef.current = true;
+      callProgressContentRef.current = nextContentKey;
+      openSwalSafely({
+        title,
+        text,
+        icon: "info",
+        buttons: false,
+        closeOnClickOutside: false,
+        closeOnEsc: false,
+      });
       callProgressTimerRef.current = setTimeout(() => {
         if (inCall) return;
         if (callProgressDialogOpenRef.current) {
           closeSwalSafely();
           callProgressDialogOpenRef.current = false;
         }
+        callProgressContentRef.current = "";
         notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
-      }, 60 * 1000);
+      }, 75 * 1000);
     },
     [closeSwalSafely, inCall, notify, openSwalSafely, t.roomCreateFailed]
   );
@@ -2700,18 +2709,29 @@ const App = () => {
     [profileName, profileUid, username]
   );
 
-  const triggerJoinWith = useCallback(
-    async (mode, nextRoomName, nextRoomPassword) => {
+  const triggerJoinWithRetries = useCallback(
+    async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
       setRoomMode(mode);
       setRoomName(nextRoomName);
       setRoomPassword(nextRoomPassword);
-      return joinCallInternal({
-        mode,
-        roomName: nextRoomName,
-        roomPassword: nextRoomPassword,
-      });
+      const maxAttempts = isLegacyAndroid ? 6 : 4;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        if (inCall) return true;
+        const joined = await joinCallInternal({
+          mode,
+          roomName: nextRoomName,
+          roomPassword: nextRoomPassword,
+          ...extraOptions,
+        });
+        if (joined) return true;
+        if (attempt < maxAttempts) {
+          const delay = Math.min(3600, 500 + attempt * 650) + Math.floor(Math.random() * 220);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      return false;
     },
-    [joinCallInternal]
+    [inCall, isLegacyAndroid, joinCallInternal]
   );
 
   const waitForInviteSenderReady = useCallback(async (roomNameValue, senderUid, timeoutMs = 45000) => {
@@ -2747,6 +2767,80 @@ const App = () => {
     audio.play().catch(() => {});
     incomingRingtoneRef.current = audio;
   }, [selectedRingtone, stopIncomingRingtone]);
+
+  const processReceiverRoomReadyInvite = useCallback(
+    async (roomReadyInvite, consumeRefPath, handledKey) => {
+      if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
+      if (inCall) return;
+      const flowCallId = `recv_${roomReadyInvite.id}`;
+      if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
+      receiverJoinFlowRef.current = { callId: flowCallId, joining: true };
+      if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
+      showCallProgressDialog(t.incomingCall, t.waitingBackend);
+
+      try {
+        const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
+        const senderWaitTimeout = isLegacyAndroid ? 70000 : 50000;
+        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, senderWaitTimeout);
+
+        const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
+        if (joinDelay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, joinDelay));
+        }
+
+        let joined = await triggerJoinWithRetries(
+          "join",
+          roomReadyInvite.roomName,
+          roomReadyInvite.roomPassword,
+          { allowFromLobbyStart: true }
+        );
+
+        if (!joined && !inCall) {
+          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 25000);
+          joined = await triggerJoinWithRetries(
+            "join",
+            roomReadyInvite.roomName,
+            roomReadyInvite.roomPassword,
+            { allowFromLobbyStart: true }
+          );
+        }
+
+        if (joined || inCall) {
+          if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
+          hideCallProgressDialog();
+          update(ref(db, consumeRefPath), {
+            consumedAt: Date.now(),
+            consumedBy: profileUid,
+          }).catch(() => {});
+          return;
+        }
+
+        if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
+        hideCallProgressDialog();
+        notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 }).catch(() => {});
+      } finally {
+        receiverJoinFlowRef.current = { callId: "", joining: false };
+        if (handledKey) {
+          setTimeout(() => {
+            delete handledRoomReadyInviteRef.current[handledKey];
+          }, 5000);
+        }
+      }
+    },
+    [
+      hideCallProgressDialog,
+      inCall,
+      isLegacyAndroid,
+      notify,
+      profileUid,
+      showCallProgressDialog,
+      t.incomingCall,
+      t.roomCreateFailed,
+      t.waitingBackend,
+      triggerJoinWithRetries,
+      waitForInviteSenderReady,
+    ]
+  );
 
   useEffect(() => {
     if (!incomingInvites.length) return;
@@ -2818,60 +2912,16 @@ const App = () => {
       if (!roomReadyInvite) return;
       if (handledRoomReadyInviteRef.current[roomReadyInvite.id]) return;
       handledRoomReadyInviteRef.current[roomReadyInvite.id] = true;
-
-      const tryJoinOnce = async () => {
-        if (inCall) return;
-        if (receiverJoinFlowRef.current.callId === roomReadyInvite.id && receiverJoinFlowRef.current.joining) return;
-        receiverJoinFlowRef.current = { callId: roomReadyInvite.id, joining: true };
-        if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
-        showCallProgressDialog(t.incomingCall, t.waitingBackend);
-        await waitForInviteSenderReady(
-          roomReadyInvite.roomName,
-          roomReadyInvite.fromUid || roomReadyInvite.from || "",
-          45000
-        );
-        const joinDelay = Math.min(
-          5000,
-          Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000))
-        );
-        if (joinDelay > 0) {
-          await new Promise((resolve) => setTimeout(resolve, joinDelay));
-        }
-        let joined = await joinCallInternal({
-          mode: "join",
-          roomName: roomReadyInvite.roomName,
-          roomPassword: roomReadyInvite.roomPassword,
-          allowFromLobbyStart: true,
-        });
-        if (!joined) {
-          await new Promise((resolve) => setTimeout(resolve, 450));
-          joined = await joinCallInternal({
-            mode: "join",
-            roomName: roomReadyInvite.roomName,
-            roomPassword: roomReadyInvite.roomPassword,
-            allowFromLobbyStart: true,
-          });
-        }
-        if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
-        hideCallProgressDialog();
-        if (!joined) {
-          receiverJoinFlowRef.current = { callId: "", joining: false };
-          delete handledRoomReadyInviteRef.current[roomReadyInvite.id];
-          return;
-        }
-        receiverJoinFlowRef.current = { callId: "", joining: false };
-        update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
-          consumedAt: Date.now(),
-          consumedBy: profileUid,
-        }).catch(() => {});
-      };
-
       setTimeout(() => {
-        tryJoinOnce();
+        processReceiverRoomReadyInvite(
+          roomReadyInvite,
+          `invites/${profileUid}/${roomReadyInvite.id}`,
+          roomReadyInvite.id
+        );
       }, 100);
     });
     return () => unsubscribe();
-  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend, waitForInviteSenderReady]);
+  }, [processReceiverRoomReadyInvite, profileUid]);
 
   useEffect(() => {
     if (!profileUid) return undefined;
@@ -2890,57 +2940,16 @@ const App = () => {
       if (!roomReadyInvite) return;
       if (handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`]) return;
       handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`] = true;
-
-      const tryJoinMirror = async () => {
-        if (inCall) return;
-        if (receiverJoinFlowRef.current.callId === roomReadyInvite.id && receiverJoinFlowRef.current.joining) return;
-        receiverJoinFlowRef.current = { callId: roomReadyInvite.id, joining: true };
-        if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
-        showCallProgressDialog(t.incomingCall, t.waitingBackend);
-        await waitForInviteSenderReady(
-          roomReadyInvite.roomName,
-          roomReadyInvite.fromUid || roomReadyInvite.from || "",
-          45000
-        );
-        const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
-        if (joinDelay > 0) {
-          await new Promise((resolve) => setTimeout(resolve, joinDelay));
-        }
-        let joined = await joinCallInternal({
-          mode: "join",
-          roomName: roomReadyInvite.roomName,
-          roomPassword: roomReadyInvite.roomPassword,
-          allowFromLobbyStart: true,
-        });
-        if (!joined) {
-          await new Promise((resolve) => setTimeout(resolve, 450));
-          joined = await joinCallInternal({
-            mode: "join",
-            roomName: roomReadyInvite.roomName,
-            roomPassword: roomReadyInvite.roomPassword,
-            allowFromLobbyStart: true,
-          });
-        }
-        if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
-        hideCallProgressDialog();
-        if (!joined) {
-          receiverJoinFlowRef.current = { callId: "", joining: false };
-          delete handledRoomReadyInviteRef.current[`mirror_${roomReadyInvite.id}`];
-          return;
-        }
-        receiverJoinFlowRef.current = { callId: "", joining: false };
-        update(ref(db, `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`), {
-          consumedAt: Date.now(),
-          consumedBy: profileUid,
-        }).catch(() => {});
-      };
-
       setTimeout(() => {
-        tryJoinMirror();
+        processReceiverRoomReadyInvite(
+          roomReadyInvite,
+          `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`,
+          `mirror_${roomReadyInvite.id}`
+        );
       }, 100);
     });
     return () => unsubscribe();
-  }, [hideCallProgressDialog, inCall, joinCallInternal, profileUid, showCallProgressDialog, t.incomingCall, t.waitingBackend, waitForInviteSenderReady]);
+  }, [processReceiverRoomReadyInvite, profileUid]);
 
   const searchByUid = useCallback(async () => {
     const query = searchUid.trim();
@@ -3316,11 +3325,7 @@ const App = () => {
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          let joined = await triggerJoinWith("create", room, password);
-          if (!joined) {
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            joined = await triggerJoinWith("create", room, password);
-          }
+          const joined = await triggerJoinWithRetries("create", room, password);
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
@@ -3336,7 +3341,7 @@ const App = () => {
         if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
           processing = true;
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
-          const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
+          const joined = await triggerJoinWithRetries("join", item.roomName, item.roomPassword);
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
@@ -3361,7 +3366,7 @@ const App = () => {
       }
     });
     return () => unsubscribe();
-  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWithRetries]);
 
   useEffect(() => {
     if (!outgoingCallRequest?.targetUid || !outgoingCallRequest?.inviteId) return undefined;
