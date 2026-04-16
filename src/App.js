@@ -269,6 +269,14 @@ const normalizeCallUser = (rawValue) => {
 };
 
 const App = () => {
+  const androidVersion = useMemo(() => {
+    if (typeof navigator === "undefined") return 0;
+    const ua = navigator.userAgent || "";
+    const match = ua.match(/Android\s+(\d+)/i);
+    return match ? Number(match[1] || 0) : 0;
+  }, []);
+  const isLegacyAndroid = androidVersion > 0 && androidVersion <= 8;
+
   const [language, setLanguage] = useState("en");
   const [username, setUsername] = useState("");
   const [roomName, setRoomName] = useState("");
@@ -354,7 +362,9 @@ const App = () => {
   const [localSpeaking, setLocalSpeaking] = useState(false);
   const [selectedCallUser, setSelectedCallUser] = useState(null);
 
-  const [client] = useState(() => AgoraRTC.createClient({ mode: "rtc", codec: "vp8" }));
+  const [client] = useState(() =>
+    AgoraRTC.createClient({ mode: "rtc", codec: isLegacyAndroid ? "h264" : "vp8" })
+  );
 
   const localTrackRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -562,6 +572,7 @@ const App = () => {
       callUnavailableBusy: "User is in another room. Missed call was recorded.",
       callUnavailableOffline: "User is offline. Missed call was recorded.",
       requestExpired: "Request expired",
+      requestNoAcceptExpired: "User did not accept the call request. The request expired after 2 minutes.",
       expiresIn: "Expires in 2 minutes",
       blockedYou: "You cannot reach this user right now.",
       missedCallsTitle: "Missed Calls",
@@ -1690,7 +1701,7 @@ const App = () => {
               roomPassword: tokenRoomPassword,
             }),
           },
-          11000
+          isLegacyAndroid ? 16000 : 11000
         );
 
         const rawBody = await response.text().catch(() => "");
@@ -1725,7 +1736,7 @@ const App = () => {
     }
 
     throw new Error(lastError?.message || t.backendNotReachable);
-  }, [backendCandidates, getBackendHeaders, t.backendNotReachable, t.backendTokenError]);
+  }, [backendCandidates, getBackendHeaders, isLegacyAndroid, t.backendNotReachable, t.backendTokenError]);
 
   const ensureExclusiveSession = useCallback(async () => {
     if (!profileId) return true;
@@ -1816,7 +1827,13 @@ const App = () => {
       const safeRoomName = requestedRoomName;
       const safeRoomPassword = requestedRoomPassword;
       const encoderConfig =
-        stabilityMode === STABILITY_MODES.higher
+        isLegacyAndroid
+          ? {
+              sampleRate: 16000,
+              stereo: false,
+              bitrate: 18,
+            }
+          : stabilityMode === STABILITY_MODES.higher
           ? {
               sampleRate: 16000,
               stereo: false,
@@ -2042,6 +2059,7 @@ const App = () => {
     profileId,
     profileUid,
     stabilityMode,
+    isLegacyAndroid,
     joining,
     inCall,
     groupLobbyId,
@@ -3175,7 +3193,7 @@ const App = () => {
           }
           hideCallProgressDialog();
           setOutgoingCallRequest(null);
-          await notify(t.requestExpired, "info", "", { autoCloseMs: 2000 });
+          await notify(t.requestNoAcceptExpired, "info", "", { autoCloseMs: 2200 });
           return;
         }
         if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
@@ -3263,7 +3281,29 @@ const App = () => {
       }
     });
     return () => unsubscribe();
-  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+
+  useEffect(() => {
+    if (!outgoingCallRequest?.targetUid || !outgoingCallRequest?.inviteId) return undefined;
+    const ttlTimer = setTimeout(async () => {
+      const inviteRef = ref(db, `invites/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`);
+      const snap = await get(inviteRef).catch(() => null);
+      const item = snap?.val?.();
+      if (!item || item.status !== CONTACT_REQUEST_STATUS.pending) return;
+      await update(inviteRef, {
+        status: "expired",
+        respondedAt: Date.now(),
+      }).catch(() => {});
+      hideCallProgressDialog();
+      if (outgoingRequestDialogOpenRef.current) {
+        closeSwalSafely();
+        outgoingRequestDialogOpenRef.current = false;
+      }
+      setOutgoingCallRequest(null);
+      await notify(t.requestNoAcceptExpired, "info", "", { autoCloseMs: 2200 });
+    }, INVITE_TTL_MS + 500);
+    return () => clearTimeout(ttlTimer);
+  }, [closeSwalSafely, hideCallProgressDialog, notify, outgoingCallRequest, t.requestNoAcceptExpired]);
 
   useEffect(() => {
     if (!inCall) return;
