@@ -1155,6 +1155,7 @@ body[data-theme="light"] .chip-avatar-emoji {
   gap: 8px;
   max-height: 240px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .history-item {
@@ -1229,7 +1230,7 @@ body[data-theme="light"] .chip-avatar-emoji {
 .contact-card,
 .request-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   min-height: 108px;
   border-radius: 14px;
   padding: 12px 14px 10px;
@@ -1327,6 +1328,12 @@ body[data-theme="light"] .chip-avatar-emoji {
   white-space: normal;
   line-height: 1.2;
   text-align: center;
+}
+
+.embedded-modal .history-list {
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .action-compact {
@@ -1935,6 +1942,10 @@ body[data-theme="light"] .call-card {
 
   .history-list {
     max-height: 52vh;
+  }
+
+  .embedded-modal .history-list {
+    max-height: 54vh;
   }
 
   .contact-card,

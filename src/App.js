@@ -789,6 +789,15 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    try {
+      AgoraRTC.disableLogUpload?.();
+      AgoraRTC.setLogLevel?.(2);
+    } catch (_error) {
+      // ignore sdk logging setup errors
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (callProgressTimerRef.current) {
         clearTimeout(callProgressTimerRef.current);
@@ -3083,70 +3092,91 @@ const App = () => {
     const inviteRef = ref(db, `invites/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`);
     let processing = false;
     const unsubscribe = onValue(inviteRef, async (snapshot) => {
-      const item = snapshot.val();
-      if (!item) {
+      try {
+        const item = snapshot.val();
+        if (!item) {
+          if (outgoingRequestDialogOpenRef.current) {
+            closeSwalSafely();
+            outgoingRequestDialogOpenRef.current = false;
+          }
+          hideCallProgressDialog();
+          setOutgoingCallRequest(null);
+          return;
+        }
+        const expired = Date.now() - Number(item.createdAt || 0) > INVITE_TTL_MS;
+        if (expired && item.status === CONTACT_REQUEST_STATUS.pending) {
+          await update(inviteRef, { status: "expired", respondedAt: Date.now() }).catch(() => {});
+          return;
+        }
+        if (item.status === CONTACT_REQUEST_STATUS.declined || item.status === "expired") {
+          if (outgoingRequestDialogOpenRef.current) {
+            closeSwalSafely();
+            outgoingRequestDialogOpenRef.current = false;
+          }
+          hideCallProgressDialog();
+          setOutgoingCallRequest(null);
+          await notify(t.requestExpired, "info", "", { autoCloseMs: 2000 });
+          return;
+        }
+        if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
+          if (item.fromUid && item.fromUid !== profileUid) {
+            return;
+          }
+          processing = true;
+          showCallProgressDialog(t.roomCreating, t.waitingBackend);
+          const room = randomRoomValue("room");
+          const password = randomRoomValue("pw");
+          const joined = await triggerJoinWith("create", room, password);
+          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
+          if (!joined) {
+            hideCallProgressDialog();
+            setOutgoingCallRequest(null);
+            processing = false;
+            return;
+          }
+          hideCallProgressDialog();
+          await update(inviteRef, {
+            status: "room_ready",
+            roomName: room,
+            roomPassword: password,
+            roomCreatedBy: profileUid,
+            roomCreatedAt: Date.now(),
+            receiverJoinDelayMs: 850,
+            respondedAt: Date.now(),
+          }).catch(() => {});
+          setOutgoingCallRequest(null);
+          processing = false;
+          return;
+        }
+        if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
+          processing = true;
+          showCallProgressDialog(t.roomCreating, t.waitingBackend);
+          const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
+          if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
+          if (!joined) {
+            hideCallProgressDialog();
+            setOutgoingCallRequest(null);
+            processing = false;
+            return;
+          }
+          hideCallProgressDialog();
+          setOutgoingCallRequest(null);
+          processing = false;
+          return;
+        }
+      } catch (_error) {
+        hideCallProgressDialog();
         if (outgoingRequestDialogOpenRef.current) {
           closeSwalSafely();
           outgoingRequestDialogOpenRef.current = false;
         }
         setOutgoingCallRequest(null);
-        return;
-      }
-      const expired = Date.now() - Number(item.createdAt || 0) > INVITE_TTL_MS;
-      if (expired && item.status === CONTACT_REQUEST_STATUS.pending) {
-        await update(inviteRef, { status: "expired", respondedAt: Date.now() }).catch(() => {});
-        return;
-      }
-      if (item.status === CONTACT_REQUEST_STATUS.declined || item.status === "expired") {
-        if (outgoingRequestDialogOpenRef.current) {
-          closeSwalSafely();
-          outgoingRequestDialogOpenRef.current = false;
-        }
-        setOutgoingCallRequest(null);
-        await notify(t.requestExpired, "info", "", { autoCloseMs: 2000 });
-        return;
-      }
-      if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName && !processing) {
-        if (item.fromUid && item.fromUid !== profileUid) {
-          return;
-        }
-        processing = true;
-        showCallProgressDialog(t.roomCreating, t.waitingBackend);
-        const room = randomRoomValue("room");
-        const password = randomRoomValue("pw");
-        const joined = await triggerJoinWith("create", room, password);
-        if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-        if (!joined) {
-          hideCallProgressDialog();
-          setOutgoingCallRequest(null);
-          return;
-        }
-        await update(inviteRef, {
-          status: "room_ready",
-          roomName: room,
-          roomPassword: password,
-          roomCreatedBy: profileUid,
-          roomCreatedAt: Date.now(),
-          receiverJoinDelayMs: 850,
-          respondedAt: Date.now(),
-        }).catch(() => {});
-        setOutgoingCallRequest(null);
-      }
-      if (item.status === "room_ready" && item.roomName && item.roomPassword && !processing) {
-        processing = true;
-        showCallProgressDialog(t.roomCreating, t.waitingBackend);
-        const joined = await triggerJoinWith("join", item.roomName, item.roomPassword);
-        if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
-        if (!joined) {
-          hideCallProgressDialog();
-          setOutgoingCallRequest(null);
-          return;
-        }
-        setOutgoingCallRequest(null);
+        processing = false;
+        await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
       }
     });
     return () => unsubscribe();
-  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestExpired, t.requestingCall, t.roomCreating, t.waitingBackend, triggerJoinWith]);
+  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWith]);
 
   useEffect(() => {
     if (!inCall) return;
@@ -3155,6 +3185,11 @@ const App = () => {
     incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
   }, [closeSwalSafely, hideCallProgressDialog, inCall]);
+
+  useEffect(() => {
+    if (outgoingCallRequest || joining || inCall) return;
+    hideCallProgressDialog();
+  }, [hideCallProgressDialog, inCall, joining, outgoingCallRequest]);
 
   const addUserFromCall = useCallback(
     async (_agoraUid, rawUser) => {
