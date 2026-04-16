@@ -1668,9 +1668,10 @@ const App = () => {
 
     let lastError = null;
     for (const baseUrl of validCandidates) {
+      const endpoint = `${baseUrl}/api/rooms/token`;
       try {
         const response = await withTimeout(
-          `${baseUrl}/api/rooms/token`,
+          endpoint,
           {
             method: "POST",
             headers: getBackendHeaders(baseUrl, true),
@@ -1683,15 +1684,28 @@ const App = () => {
           11000
         );
 
-        const data = await response.json().catch(() => ({}));
+        const rawBody = await response.text().catch(() => "");
+        const data = (() => {
+          if (!rawBody) return {};
+          try {
+            return JSON.parse(rawBody);
+          } catch (_error) {
+            return {};
+          }
+        })();
 
         if (!response.ok) {
           const errorMessage = data.error || t.backendTokenError;
+          if (response.status === 501 || response.status === 404 || response.status === 405) {
+            throw new Error(
+              `Backend endpoint is invalid (${response.status}) at ${endpoint}. Set Settings > Backend to your Node/ngrok backend URL, not the frontend URL.`
+            );
+          }
           if (response.status >= 500 || response.status === 502 || response.status === 504) {
-            lastError = new Error(errorMessage);
+            lastError = new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
             continue;
           }
-          throw new Error(errorMessage);
+          throw new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
         }
 
         setActiveBackendUrl(baseUrl);
