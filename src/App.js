@@ -69,6 +69,7 @@ const PROFILE_STORAGE_KEY = "voice_call_profile_id";
 const BUTTON_HOVER_COLOR_STORAGE_KEY = "happy_talk_button_hover_color";
 const BACKEND_ONBOARDING_KEY = "happy_talk_backend_onboarding_done";
 const LOCAL_BACKEND_URL = "http://localhost:5000";
+const TOKEN_ENDPOINT_PATHS = ["/api/rooms/token", "/rooms/token", "/api/token"];
 const PROFILE_LOADING_MIN_MS = 3000;
 const ACTIVE_SESSION_TTL_MS = 20 * 1000;
 const DEFAULT_PROFILE_COLOR = "#10b981";
@@ -389,6 +390,7 @@ const App = () => {
   const callProgressDialogOpenRef = useRef(false);
   const callProgressTimerRef = useRef(null);
   const receiverJoinFlowRef = useRef({ callId: "", joining: false });
+  const tokenEndpointCacheRef = useRef({});
 
   const translations = {
     fa: {
@@ -1662,12 +1664,16 @@ const App = () => {
   }, [activeRoomKey, inCall, localNetworkStatus, userUID, profileName, username, profileUid, profileAvatar, profileEmoji, profileColor]);
 
   const backendCandidates = useMemo(() => {
-    const preferred = adminBackendUrl.trim();
-    if (preferred) {
-      return [preferred];
-    }
-    return [LOCAL_BACKEND_URL];
-  }, [adminBackendUrl]);
+    const list = [
+      activeBackendUrl?.trim(),
+      adminBackendUrl?.trim(),
+      LOCAL_BACKEND_URL,
+    ]
+      .filter(Boolean)
+      .map((url) => String(url).replace(/\/+$/, ""))
+      .filter((url, index, array) => array.indexOf(url) === index);
+    return list.length ? list : [LOCAL_BACKEND_URL];
+  }, [activeBackendUrl, adminBackendUrl]);
 
   const getBackendHeaders = useCallback((baseUrl, includeJson = false) => {
     const headers = {};
@@ -1691,50 +1697,86 @@ const App = () => {
 
     let lastError = null;
     for (const baseUrl of validCandidates) {
-      const endpoint = `${baseUrl}/api/rooms/token`;
-      try {
-        const response = await withTimeout(
-          endpoint,
-          {
-            method: "POST",
-            headers: getBackendHeaders(baseUrl, true),
-            body: JSON.stringify({
-              mode: tokenMode,
-              roomName: tokenRoomName,
-              roomPassword: tokenRoomPassword,
-            }),
-          },
-          isLegacyAndroid ? 16000 : 11000
-        );
+      const cachedPath = tokenEndpointCacheRef.current[baseUrl];
+      const endpointPaths = [cachedPath, ...TOKEN_ENDPOINT_PATHS].filter(
+        (path, index, list) => Boolean(path) && list.indexOf(path) === index
+      );
+      let sawOnlyEndpoint404 = true;
 
-        const rawBody = await response.text().catch(() => "");
-        const data = (() => {
-          if (!rawBody) return {};
+      for (const endpointPath of endpointPaths) {
+        const endpoint = `${baseUrl}${endpointPath}`;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
           try {
-            return JSON.parse(rawBody);
-          } catch (_error) {
-            return {};
-          }
-        })();
-
-        if (!response.ok) {
-          const errorMessage = data.error || t.backendTokenError;
-          if (response.status === 501 || response.status === 404 || response.status === 405) {
-            throw new Error(
-              `Backend endpoint is invalid (${response.status}) at ${endpoint}. Set Settings > Backend to your Node/ngrok backend URL, not the frontend URL.`
+            const response = await withTimeout(
+              endpoint,
+              {
+                method: "POST",
+                headers: getBackendHeaders(baseUrl, true),
+                body: JSON.stringify({
+                  mode: tokenMode,
+                  roomName: tokenRoomName,
+                  roomPassword: tokenRoomPassword,
+                }),
+              },
+              isLegacyAndroid ? 18000 : 12000
             );
-          }
-          if (response.status >= 500 || response.status === 502 || response.status === 504) {
-            lastError = new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
-            continue;
-          }
-          throw new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
-        }
 
-        setActiveBackendUrl(baseUrl);
-        return data;
-      } catch (error) {
-        lastError = error;
+            const rawBody = await response.text().catch(() => "");
+            const data = (() => {
+              if (!rawBody) return {};
+              try {
+                return JSON.parse(rawBody);
+              } catch (_error) {
+                return {};
+              }
+            })();
+
+            if (!response.ok) {
+              const errorMessage = data.error || t.backendTokenError;
+              const maybeTransientEndpointError =
+                response.status === 404 || response.status === 405 || response.status === 501;
+
+              if (!maybeTransientEndpointError) {
+                sawOnlyEndpoint404 = false;
+              }
+
+              if (maybeTransientEndpointError && attempt < 3) {
+                await new Promise((resolve) => setTimeout(resolve, 450 * attempt));
+                continue;
+              }
+
+              if (response.status >= 500 || response.status === 502 || response.status === 504) {
+                lastError = new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
+                sawOnlyEndpoint404 = false;
+                if (attempt < 3) {
+                  await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+                  continue;
+                }
+                break;
+              }
+
+              lastError = new Error(`${errorMessage} (status ${response.status} @ ${endpoint})`);
+              break;
+            }
+
+            tokenEndpointCacheRef.current[baseUrl] = endpointPath;
+            setActiveBackendUrl(baseUrl);
+            return data;
+          } catch (error) {
+            lastError = error;
+            sawOnlyEndpoint404 = false;
+            if (attempt < 3) {
+              await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+              continue;
+            }
+          }
+        }
+      }
+
+      if (sawOnlyEndpoint404) {
+        lastError = new Error(
+          `Backend endpoint is invalid (404/405/501) at ${baseUrl}. Set Settings > Backend to your Node/ngrok backend URL, not the frontend URL.`
+        );
       }
     }
 
