@@ -87,9 +87,9 @@ const PROFILE_COLORS = [
   "#e11d48",
 ];
 const PROFILE_EMOJIS = [
-  "🙂", "😎", "🤖", "🔥", "💚", "🎧", "✨", "🦊", "🐼", "🐯", "🌟", "🚀", "🎤", "🎵", "🧠", "🍀",
-  "🦁", "🐨", "🐶", "🐱", "🫶", "💫", "⚡", "🎯", "🛰️", "🛡️", "💎", "🕊️", "🌈", "🌙", "☀️", "🧩",
-  "🥷", "👑", "🦄", "🐙", "🐬", "🧸", "🎮", "📚", "✈️", "🏔️", "🌊", "🍁", "🍉", "🥑", "☕", "🍪",
+  "ðŸ™‚", "ðŸ˜Ž", "ðŸ¤–", "ðŸ”¥", "ðŸ’š", "ðŸŽ§", "âœ¨", "ðŸ¦Š", "ðŸ¼", "ðŸ¯", "ðŸŒŸ", "ðŸš€", "ðŸŽ¤", "ðŸŽµ", "ðŸ§ ", "ðŸ€",
+  "ðŸ¦", "ðŸ¨", "ðŸ¶", "ðŸ±", "ðŸ«¶", "ðŸ’«", "âš¡", "ðŸŽ¯", "ðŸ›°ï¸", "ðŸ›¡ï¸", "ðŸ’Ž", "ðŸ•Šï¸", "ðŸŒˆ", "ðŸŒ™", "â˜€ï¸", "ðŸ§©",
+  "ðŸ¥·", "ðŸ‘‘", "ðŸ¦„", "ðŸ™", "ðŸ¬", "ðŸ§¸", "ðŸŽ®", "ðŸ“š", "âœˆï¸", "ðŸ”ï¸", "ðŸŒŠ", "ðŸ", "ðŸ‰", "ðŸ¥‘", "â˜•", "ðŸª",
 ];
 
 const STABILITY_MODES = {
@@ -381,50 +381,50 @@ const App = () => {
 
   const translations = {
     fa: {
-      title: "تماس صوتی خصوصی",
-      subtitle: "اتصال امن روم خصوصی برای تماس سریع",
-      enterName: "نام کاربر",
-      enterRoomName: "اسم روم",
-      enterRoomPassword: "گذرواژه روم",
-      createRoom: "ساخت روم",
-      joinRoom: "ورود به روم",
-      startCall: "شروع تماس",
-      joining: "در حال اتصال...",
-      users: "کاربران حاضر",
-      mute: "قطع صدا",
-      unmute: "وصل صدا",
-      lowerMic: "کاهش میکروفون",
-      normalMic: "حالت عادی میکروفون",
-      record: "شروع ضبط",
-      stopRecord: "توقف ضبط",
-      leaveCall: "خروج از تماس",
-      roomInfo: "کد دعوت روم",
-      copyInvite: "کپی کد",
-      copied: "کپی شد",
-      connectionQuality: "کیفیت اتصال",
-      perfect: "عالی",
-      good: "خوب",
-      medium: "متوسط",
-      weak: "ضعیف",
-      nameRequired: "نام کاربر را وارد کنید",
-      roomNameRequired: "اسم روم را وارد کنید",
-      roomPasswordRequired: "گذرواژه روم را وارد کنید",
+      title: "ØªÙ…Ø§Ø³ ØµÙˆØªÛŒ Ø®ØµÙˆØµÛŒ",
+      subtitle: "Ø§ØªØµØ§Ù„ Ø§Ù…Ù† Ø±ÙˆÙ… Ø®ØµÙˆØµÛŒ Ø¨Ø±Ø§ÛŒ ØªÙ…Ø§Ø³ Ø³Ø±ÛŒØ¹",
+      enterName: "Ù†Ø§Ù… Ú©Ø§Ø±Ø¨Ø±",
+      enterRoomName: "Ø§Ø³Ù… Ø±ÙˆÙ…",
+      enterRoomPassword: "Ú¯Ø°Ø±ÙˆØ§Ú˜Ù‡ Ø±ÙˆÙ…",
+      createRoom: "Ø³Ø§Ø®Øª Ø±ÙˆÙ…",
+      joinRoom: "ÙˆØ±ÙˆØ¯ Ø¨Ù‡ Ø±ÙˆÙ…",
+      startCall: "Ø´Ø±ÙˆØ¹ ØªÙ…Ø§Ø³",
+      joining: "Ø¯Ø± Ø­Ø§Ù„ Ø§ØªØµØ§Ù„...",
+      users: "Ú©Ø§Ø±Ø¨Ø±Ø§Ù† Ø­Ø§Ø¶Ø±",
+      mute: "Ù‚Ø·Ø¹ ØµØ¯Ø§",
+      unmute: "ÙˆØµÙ„ ØµØ¯Ø§",
+      lowerMic: "Ú©Ø§Ù‡Ø´ Ù…ÛŒÚ©Ø±ÙˆÙÙˆÙ†",
+      normalMic: "Ø­Ø§Ù„Øª Ø¹Ø§Ø¯ÛŒ Ù…ÛŒÚ©Ø±ÙˆÙÙˆÙ†",
+      record: "Ø´Ø±ÙˆØ¹ Ø¶Ø¨Ø·",
+      stopRecord: "ØªÙˆÙ‚Ù Ø¶Ø¨Ø·",
+      leaveCall: "Ø®Ø±ÙˆØ¬ Ø§Ø² ØªÙ…Ø§Ø³",
+      roomInfo: "Ú©Ø¯ Ø¯Ø¹ÙˆØª Ø±ÙˆÙ…",
+      copyInvite: "Ú©Ù¾ÛŒ Ú©Ø¯",
+      copied: "Ú©Ù¾ÛŒ Ø´Ø¯",
+      connectionQuality: "Ú©ÛŒÙÛŒØª Ø§ØªØµØ§Ù„",
+      perfect: "Ø¹Ø§Ù„ÛŒ",
+      good: "Ø®ÙˆØ¨",
+      medium: "Ù…ØªÙˆØ³Ø·",
+      weak: "Ø¶Ø¹ÛŒÙ",
+      nameRequired: "Ù†Ø§Ù… Ú©Ø§Ø±Ø¨Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯",
+      roomNameRequired: "Ø§Ø³Ù… Ø±ÙˆÙ… Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯",
+      roomPasswordRequired: "Ú¯Ø°Ø±ÙˆØ§Ú˜Ù‡ Ø±ÙˆÙ… Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯",
       backendNotReachable:
-        "بک‌اند در دسترس نیست. اول Node backend را اجرا کن و بعد ngrok را وصل کن.",
-      backendTokenError: "دریافت توکن از بک‌اند انجام نشد.",
-      appIdError: "APP_ID برای Agora تنظیم نشده است.",
-      adminAccessHint: "برای پنل مخفی ngrok، روی عنوان 5 بار سریع بزن.",
-      adminPanelTitle: "تنظیم مخفی بک‌اند",
-      adminBackendLabel: "آدرس بک‌اند (ngrok یا localhost)",
-      adminSave: "ذخیره",
-      adminClose: "بستن",
+        "Ø¨Ú©â€ŒØ§Ù†Ø¯ Ø¯Ø± Ø¯Ø³ØªØ±Ø³ Ù†ÛŒØ³Øª. Ø§ÙˆÙ„ Node backend Ø±Ø§ Ø§Ø¬Ø±Ø§ Ú©Ù† Ùˆ Ø¨Ø¹Ø¯ ngrok Ø±Ø§ ÙˆØµÙ„ Ú©Ù†.",
+      backendTokenError: "Ø¯Ø±ÛŒØ§ÙØª ØªÙˆÚ©Ù† Ø§Ø² Ø¨Ú©â€ŒØ§Ù†Ø¯ Ø§Ù†Ø¬Ø§Ù… Ù†Ø´Ø¯.",
+      appIdError: "APP_ID Ø¨Ø±Ø§ÛŒ Agora ØªÙ†Ø¸ÛŒÙ… Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª.",
+      adminAccessHint: "Ø¨Ø±Ø§ÛŒ Ù¾Ù†Ù„ Ù…Ø®ÙÛŒ ngrokØŒ Ø±ÙˆÛŒ Ø¹Ù†ÙˆØ§Ù† 5 Ø¨Ø§Ø± Ø³Ø±ÛŒØ¹ Ø¨Ø²Ù†.",
+      adminPanelTitle: "ØªÙ†Ø¸ÛŒÙ… Ù…Ø®ÙÛŒ Ø¨Ú©â€ŒØ§Ù†Ø¯",
+      adminBackendLabel: "Ø¢Ø¯Ø±Ø³ Ø¨Ú©â€ŒØ§Ù†Ø¯ (ngrok ÛŒØ§ localhost)",
+      adminSave: "Ø°Ø®ÛŒØ±Ù‡",
+      adminClose: "Ø¨Ø³ØªÙ†",
       adminGuide:
-        "راهنما: اگر بک‌اند را دستی اجرا می‌کنی همین localhost:5000 کافی است. برای دسترسی بیرونی، ngrok http 5000 بزن و لینک https را ذخیره کن.",
-      backendConnected: "بک‌اند فعال",
-      backendInvalidUrl: "آدرس بک‌اند معتبر نیست. باید با http:// یا https:// شروع شود.",
-      recordingStarted: "ضبط تماس شروع شد",
-      recordingStopped: "ضبط تماس متوقف شد",
-      waitingBackend: "انتظار برای پاسخ بک‌اند...",
+        "Ø±Ø§Ù‡Ù†Ù…Ø§: Ø§Ú¯Ø± Ø¨Ú©â€ŒØ§Ù†Ø¯ Ø±Ø§ Ø¯Ø³ØªÛŒ Ø§Ø¬Ø±Ø§ Ù…ÛŒâ€ŒÚ©Ù†ÛŒ Ù‡Ù…ÛŒÙ† localhost:5000 Ú©Ø§ÙÛŒ Ø§Ø³Øª. Ø¨Ø±Ø§ÛŒ Ø¯Ø³ØªØ±Ø³ÛŒ Ø¨ÛŒØ±ÙˆÙ†ÛŒØŒ ngrok http 5000 Ø¨Ø²Ù† Ùˆ Ù„ÛŒÙ†Ú© https Ø±Ø§ Ø°Ø®ÛŒØ±Ù‡ Ú©Ù†.",
+      backendConnected: "Ø¨Ú©â€ŒØ§Ù†Ø¯ ÙØ¹Ø§Ù„",
+      backendInvalidUrl: "Ø¢Ø¯Ø±Ø³ Ø¨Ú©â€ŒØ§Ù†Ø¯ Ù…Ø¹ØªØ¨Ø± Ù†ÛŒØ³Øª. Ø¨Ø§ÛŒØ¯ Ø¨Ø§ http:// ÛŒØ§ https:// Ø´Ø±ÙˆØ¹ Ø´ÙˆØ¯.",
+      recordingStarted: "Ø¶Ø¨Ø· ØªÙ…Ø§Ø³ Ø´Ø±ÙˆØ¹ Ø´Ø¯",
+      recordingStopped: "Ø¶Ø¨Ø· ØªÙ…Ø§Ø³ Ù…ØªÙˆÙ‚Ù Ø´Ø¯",
+      waitingBackend: "Ø§Ù†ØªØ¸Ø§Ø± Ø¨Ø±Ø§ÛŒ Ù¾Ø§Ø³Ø® Ø¨Ú©â€ŒØ§Ù†Ø¯...",
     },
     en: {
       title: "Happy Talk",
@@ -3640,7 +3640,7 @@ const App = () => {
                       {groupSearchResult.avatar ? (
                         <img src={groupSearchResult.avatar} alt={groupSearchResult.name || groupSearchResult.uid} className="mini-avatar large" />
                       ) : (
-                        <span className="mini-avatar-emoji large">{groupSearchResult.emoji || "🙂"}</span>
+                        <span className="mini-avatar-emoji large">{groupSearchResult.emoji || "ðŸ™‚"}</span>
                       )}
                       <strong>{groupSearchResult.name || groupSearchResult.uid}</strong>
                     </span>
@@ -3667,7 +3667,7 @@ const App = () => {
                             {contact.avatar ? (
                               <img src={contact.avatar} alt={contact.name} className="mini-avatar large" />
                             ) : (
-                              <span className="mini-avatar-emoji large">{contact.emoji || "🙂"}</span>
+                              <span className="mini-avatar-emoji large">{contact.emoji || "ðŸ™‚"}</span>
                             )}
                             <strong>{contact.name}</strong>
                           </span>
@@ -3693,7 +3693,7 @@ const App = () => {
                         {member.avatar ? (
                           <img src={member.avatar} alt={member.name} className="mini-avatar large" />
                         ) : (
-                          <span className="mini-avatar-emoji large">{member.emoji || "🙂"}</span>
+                          <span className="mini-avatar-emoji large">{member.emoji || "ðŸ™‚"}</span>
                         )}
                         <strong>{member.name}</strong>
                       </span>
@@ -3822,7 +3822,7 @@ const App = () => {
                   {showContactsModal ? (
                     <div className="embedded-modal">
                       <p className="section-label">{t.contactsTitle}</p>
-                      <div className="history-list">
+                      <div className="history-list contacts-scroll-list">
                         {Object.entries(contacts || {}).length ? (
                           Object.entries(contacts || {}).map(([contactUidKey, contactRaw]) => {
                             const contact = { ...(contactRaw || {}), uid: contactRaw?.uid || contactUidKey };
@@ -3839,23 +3839,25 @@ const App = () => {
                                   ...buildSoftCardStyle(cardColor, 0.24, 0.14, 0.2),
                                 }}
                               >
-                                <span className="contact-line">
-                                  {presence.avatar || contact.avatar ? (
-                                    <img src={presence.avatar || contact.avatar} alt={presence.name || contact.name} className="mini-avatar large" />
-                                  ) : (
-                                    <span className="mini-avatar-emoji large">{presence.emoji || contact.emoji || "🙂"}</span>
-                                  )}
-                                  <strong className="contact-name">{presence.name || contact.name}</strong>
-                                </span>
-                                <span className="uid-copy-row">
-                                  <span>{t.contactUid}: {contact.uid}</span>
-                                  <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
-                                    <ContentCopy fontSize="small" />
-                                  </button>
-                                </span>
-                                <span className={`status-meta ${presence.isOnline ? "status-online" : "status-offline"}`}>
-                                  {statusText}
-                                </span>
+                                <div className="contact-head">
+                                  <span className="contact-line">
+                                    {presence.avatar || contact.avatar ? (
+                                      <img src={presence.avatar || contact.avatar} alt={presence.name || contact.name} className="mini-avatar large" />
+                                    ) : (
+                                      <span className="mini-avatar-emoji large">{presence.emoji || contact.emoji || "🙂"}</span>
+                                    )}
+                                    <strong className="contact-name">{presence.name || contact.name}</strong>
+                                  </span>
+                                  <span className="uid-copy-row">
+                                    <span>{t.contactUid}: {contact.uid}</span>
+                                    <button className="icon-ghost-btn inline-btn" onClick={() => copyUid(contact.uid)} title={t.copiedUid}>
+                                      <ContentCopy fontSize="small" />
+                                    </button>
+                                  </span>
+                                  <span className={`status-meta ${presence.isOnline ? "status-online" : "status-offline"}`}>
+                                    {statusText}
+                                  </span>
+                                </div>
                                 <div className="contact-actions">
                                   <button className="btn-gradient action-compact" onClick={() => inviteContactToCall({ ...contact, ...presence, contactUid: contact.uid })}>
                                     {t.inviteToCall}
@@ -3898,7 +3900,7 @@ const App = () => {
                                 {request.fromAvatar ? (
                                   <img src={request.fromAvatar} alt={request.fromName} className="mini-avatar large" />
                                 ) : (
-                                  <span className="mini-avatar-emoji large">{request.fromEmoji || "🙂"}</span>
+                                  <span className="mini-avatar-emoji large">{request.fromEmoji || "ðŸ™‚"}</span>
                                 )}
                                 <strong className="contact-name">{request.fromName}</strong>
                               </span>
@@ -3942,7 +3944,7 @@ const App = () => {
                             {row.avatar ? (
                               <img src={row.avatar} alt={row.name || row.uid} className="mini-avatar large" />
                             ) : (
-                              <span className="mini-avatar-emoji large">{row.emoji || "🙂"}</span>
+                              <span className="mini-avatar-emoji large">{row.emoji || "ðŸ™‚"}</span>
                             )}
                             <strong>{row.name || row.uid}</strong>
                           </span>
@@ -3991,7 +3993,7 @@ const App = () => {
                   <p className="section-label">{t.languageLabel}</p>
                   <div className="mode-grid">
                     <button className={`btn-gradient ${language === "en" ? "mode-active" : ""}`} onClick={() => setLanguage("en")}>English</button>
-                    <button className={`btn-gradient ${language === "fa" ? "mode-active" : ""}`} onClick={() => setLanguage("fa")}>فارسی</button>
+                    <button className={`btn-gradient ${language === "fa" ? "mode-active" : ""}`} onClick={() => setLanguage("fa")}>ÙØ§Ø±Ø³ÛŒ</button>
                   </div>
                   <p className="section-label">{t.themeLabel}</p>
                   <div className="mode-grid">
@@ -4025,32 +4027,32 @@ const App = () => {
                     <img src={appLogo} alt="Happy Talk logo" className="about-logo" />
                     <h3>{APP_DISPLAY_NAME}</h3>
                   </div>
-                  <h3>About This App 🚀</h3>
+                  <h3>About This App ðŸš€</h3>
                   <p>
                     This application is the result of months of dedicated effort, continuous learning, and real-world testing.
-                    Every part of it has been carefully crafted with passion, precision, and a strong vision to build something truly reliable and meaningful 💡
+                    Every part of it has been carefully crafted with passion, precision, and a strong vision to build something truly reliable and meaningful ðŸ’¡
                   </p>
                   <p>
                     It is designed to deliver high-quality private voice communication, even under challenging network conditions.
-                    The goal was simple yet powerful: create a system that just works fast, stable, and secure no matter where the user is 🌍
+                    The goal was simple yet powerful: create a system that just works fast, stable, and secure no matter where the user is ðŸŒ
                   </p>
-                  <h4>⚙️ Full Technology Stack (Complete System)</h4>
+                  <h4>âš™ï¸ Full Technology Stack (Complete System)</h4>
                   <p>This is not just a simple app it is a fully integrated system including frontend, backend, real-time communication, and database.</p>
-                  <h4>🧠 Backend</h4>
+                  <h4>ðŸ§  Backend</h4>
                   <p>Built with Node.js + ngrok</p>
                   <p>Handles secure token generation, manages communication between services, and enables external access.</p>
-                  <h4>🎨 Frontend</h4>
-                  <p>Developed using JavaScript + React with modern, dynamic, and responsive UI and smooth UX ✨</p>
-                  <h4>📡 Real-Time Communication</h4>
-                  <p>Powered by Agora for high-quality voice calls, low latency, and optimization for unstable networks 🔊</p>
-                  <h4>🗄 Database & Real-Time Sync</h4>
+                  <h4>ðŸŽ¨ Frontend</h4>
+                  <p>Developed using JavaScript + React with modern, dynamic, and responsive UI and smooth UX âœ¨</p>
+                  <h4>ðŸ“¡ Real-Time Communication</h4>
+                  <p>Powered by Agora for high-quality voice calls, low latency, and optimization for unstable networks ðŸ”Š</p>
+                  <h4>ðŸ—„ Database & Real-Time Sync</h4>
                   <p>Using Firebase for real-time sync, user presence tracking, contacts, history, and live updates.</p>
-                  <h4>💬 Vision</h4>
+                  <h4>ðŸ’¬ Vision</h4>
                   <p>
                     This app was built with a strong belief that communication should be simple, fast, and accessible for everyone,
-                    even in low-bandwidth environments users should connect without frustration ❤️
+                    even in low-bandwidth environments users should connect without frustration â¤ï¸
                   </p>
-                  <h4>👨‍💻 Creator</h4>
+                  <h4>ðŸ‘¨â€ðŸ’» Creator</h4>
                   <p><strong>Wahidullah Khajeh Seddiqi (Mr.Happy)</strong></p>
                   <p>
                     <strong>
@@ -4068,7 +4070,7 @@ const App = () => {
                       </a>
                     </strong>
                   </p>
-                  <p>✨ Built with passion, persistence, and a love for creating real-world solutions.</p>
+                  <p>âœ¨ Built with passion, persistence, and a love for creating real-world solutions.</p>
                 </div>
               ) : null}
 
@@ -4192,7 +4194,7 @@ const App = () => {
                     {userInfo.avatar ? (
                       <img src={userInfo.avatar} alt={userInfo.name} className="chip-avatar" />
                     ) : (
-                      <span className="chip-avatar-emoji">{userInfo.emoji || "🙂"}</span>
+                      <span className="chip-avatar-emoji">{userInfo.emoji || "ðŸ™‚"}</span>
                     )}
                     <span>{userInfo.name}</span>
                   </span>
@@ -4285,7 +4287,7 @@ const App = () => {
               {selectedCallUser.avatar ? (
                 <img src={selectedCallUser.avatar} alt={selectedCallUser.name} className="profile-avatar-preview" />
               ) : (
-                <div className="profile-emoji-fallback">{selectedCallUser.emoji || "🙂"}</div>
+                <div className="profile-emoji-fallback">{selectedCallUser.emoji || "ðŸ™‚"}</div>
               )}
             </div>
             <h4>{selectedCallUser.name || "User"}</h4>

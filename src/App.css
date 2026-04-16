@@ -1231,7 +1231,7 @@ body[data-theme="light"] .chip-avatar-emoji {
 .request-card {
   position: relative;
   overflow: visible;
-  min-height: 108px;
+  min-height: 126px;
   border-radius: 14px;
   padding: 12px 14px 10px;
   border: 1px solid rgba(128, 196, 225, 0.26);
@@ -1289,11 +1289,22 @@ body[data-theme="light"] .chip-avatar-emoji {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  width: 100%;
 }
 
 .contact-name {
   font-size: 15px;
   font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-head {
+  display: grid;
+  gap: 5px;
+  align-items: center;
 }
 
 .uid-copy-row {
@@ -1313,9 +1324,9 @@ body[data-theme="light"] .chip-avatar-emoji {
 
 .contact-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(84px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 6px;
   align-items: stretch;
 }
 
@@ -1337,14 +1348,14 @@ body[data-theme="light"] .chip-avatar-emoji {
 }
 
 .contacts-scroll-list {
-  max-height: min(58vh, 520px) !important;
+  max-height: min(42vh, 360px) !important;
   overflow-y: auto !important;
   padding-right: 6px;
 }
 
 .contacts-scroll-list .contact-card {
-  min-height: 132px;
-  padding: 12px 12px 10px;
+  min-height: 136px;
+  padding: 12px 12px 12px;
 }
 
 .contacts-scroll-list .contact-actions {
@@ -1964,7 +1975,7 @@ body[data-theme="light"] .call-card {
   }
 
   .contacts-scroll-list {
-    max-height: 56vh !important;
+    max-height: 54vh !important;
   }
 
   .contact-card,

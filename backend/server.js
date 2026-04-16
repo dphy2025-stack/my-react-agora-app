@@ -3,7 +3,9 @@ const fs = require("fs");
 const dotenv = require("dotenv");
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
 const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
+const { createCallSignaling } = require("./call-signaling");
 
 const envPath = path.resolve(__dirname, ".env");
 if (fs.existsSync(envPath)) {
@@ -13,6 +15,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const app = express();
+const server = http.createServer(app);
 app.use(express.json());
 app.disable("x-powered-by");
 
@@ -24,8 +27,6 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
-
-const rooms = new Map();
 
 const corsOptions = {
   origin(origin, callback) {
@@ -57,23 +58,6 @@ process.on("unhandledRejection", (error) => {
 const nowInSeconds = () => Math.floor(Date.now() / 1000);
 
 const normalizeRoomName = (value) => value.trim();
-
-const isRoomExpired = (room) => room.expiresAt <= nowInSeconds();
-
-const cleanupRoomIfExpired = (roomName) => {
-  const existing = rooms.get(roomName);
-  if (existing && isRoomExpired(existing)) {
-    rooms.delete(roomName);
-  }
-};
-
-const cleanupAllExpiredRooms = () => {
-  for (const [roomName, room] of rooms.entries()) {
-    if (isRoomExpired(room)) {
-      rooms.delete(roomName);
-    }
-  }
-};
 
 const buildToken = (roomName, uid) => {
   const expiresAt = nowInSeconds() + ROOM_TTL_SECONDS;
@@ -122,39 +106,11 @@ app.post("/api/rooms/token", (req, res) => {
     if (!roomPassword) {
       return res.status(400).json({ error: "roomPassword is required" });
     }
-
-    cleanupRoomIfExpired(roomName);
-
-    const existingRoom = rooms.get(roomName);
-
-    if (mode === "create") {
-      if (existingRoom && existingRoom.password !== roomPassword) {
-        return res
-          .status(409)
-          .json({ error: "Room already exists with a different password" });
-      }
-
-      rooms.set(roomName, {
-        password: roomPassword,
-        createdAt: nowInSeconds(),
-        expiresAt: nowInSeconds() + ROOM_TTL_SECONDS,
-      });
-    }
-
-    if (mode === "join") {
-      if (!existingRoom) {
-        return res.status(404).json({ error: "Room not found" });
-      }
-
-      if (existingRoom.password !== roomPassword) {
-        return res.status(401).json({ error: "Invalid room password" });
-      }
-
-      rooms.set(roomName, {
-        ...existingRoom,
-        expiresAt: nowInSeconds() + ROOM_TTL_SECONDS,
-      });
-    }
+    // NOTE:
+    // Token issuing is intentionally stateless here so it works reliably
+    // on serverless/runtime-scaled deployments (e.g. Vercel/Render).
+    // Room coordination is handled by realtime signaling (Firebase in frontend).
+    // We still keep `mode` in response for debugging consistency.
 
     const uid = Math.floor(Math.random() * 900000) + 100000;
     const { token, expiresAt } = buildToken(roomName, uid);
@@ -163,6 +119,7 @@ app.post("/api/rooms/token", (req, res) => {
       token,
       uid,
       roomName,
+      mode,
       expiresInSeconds: Math.max(0, expiresAt - nowInSeconds()),
     });
   } catch (error) {
@@ -170,10 +127,11 @@ app.post("/api/rooms/token", (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+createCallSignaling(server);
+
+server.listen(PORT, () => {
   console.log(`Backend running on port ${PORT}`);
   console.log(`Env source: ${fs.existsSync(envPath) ? envPath : "process.env"}`);
   console.log(`Agora config loaded: ${Boolean(APP_ID && APP_CERTIFICATE)}`);
+  console.log("Socket signaling enabled");
 });
-
-setInterval(cleanupAllExpiredRooms, 5 * 60 * 1000);
