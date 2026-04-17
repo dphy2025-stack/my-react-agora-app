@@ -6,13 +6,22 @@ function createCallSignaling(httpServer) {
     cors: { origin: "*" },
   });
 
-  const online = new Map();
+  const userSockets = new Map();
   const calls = new Map();
 
   const emitToUser = (userId, event, payload) => {
-    const sid = online.get(userId);
-    if (!sid) return;
-    io.to(sid).emit(event, payload);
+    if (!userId) return;
+    io.to(`user:${userId}`).emit(event, payload);
+  };
+
+  const removeSocketFromUser = (userId, socketId) => {
+    if (!userId || !socketId) return;
+    const sockets = userSockets.get(userId);
+    if (!sockets) return;
+    sockets.delete(socketId);
+    if (sockets.size === 0) {
+      userSockets.delete(userId);
+    }
   };
 
   const buildRoom = () => ({
@@ -30,9 +39,8 @@ function createCallSignaling(httpServer) {
         return;
       }
 
-      const bothDelivered = c.roomDelivered[c.from] && c.roomDelivered[c.to];
       const bothJoined = c.joined[c.from] && c.joined[c.to];
-      if (bothDelivered || bothJoined) {
+      if (bothJoined || c.status === "ended" || c.status === "cancelled") {
         clearInterval(timer);
         return;
       }
@@ -59,7 +67,14 @@ function createCallSignaling(httpServer) {
   io.on("connection", (socket) => {
     socket.on("auth:bind", ({ userId }) => {
       if (!userId) return;
-      online.set(userId, socket.id);
+      const prevUserId = socket.data.userId;
+      if (prevUserId && prevUserId !== userId) {
+        removeSocketFromUser(prevUserId, socket.id);
+        socket.leave(`user:${prevUserId}`);
+      }
+      const sockets = userSockets.get(userId) || new Set();
+      sockets.add(socket.id);
+      userSockets.set(userId, sockets);
       socket.data.userId = userId;
       socket.join(`user:${userId}`);
     });
@@ -81,7 +96,9 @@ function createCallSignaling(httpServer) {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         roomDelivered: {},
+        roomDeliveredBySocket: {},
         joined: {},
+        joinedBySocket: {},
       });
       emitToUser(to, "call:incoming", { callId, from, createdAt: Date.now() });
       ack?.({ ok: true, callId });
@@ -122,6 +139,11 @@ function createCallSignaling(httpServer) {
         ack?.({ ok: false });
         return;
       }
+      if (userId !== c.from && userId !== c.to) {
+        ack?.({ ok: false });
+        return;
+      }
+      c.roomDeliveredBySocket[socket.id] = Date.now();
       c.roomDelivered[userId] = true;
       c.updatedAt = Date.now();
       ack?.({ ok: true });
@@ -134,11 +156,44 @@ function createCallSignaling(httpServer) {
         ack?.({ ok: false });
         return;
       }
+      if (userId !== c.from && userId !== c.to) {
+        ack?.({ ok: false });
+        return;
+      }
+      if (!["room_ready", "active"].includes(c.status)) {
+        ack?.({ ok: false });
+        return;
+      }
+      c.joinedBySocket[socket.id] = Date.now();
       c.joined[userId] = true;
       c.updatedAt = Date.now();
       if (c.joined[c.from] && c.joined[c.to]) {
         c.status = "active";
       }
+      ack?.({ ok: true });
+    });
+
+    socket.on("call:leave", ({ callId }, ack) => {
+      const userId = socket.data.userId;
+      const c = calls.get(callId);
+      if (!c || !userId) {
+        ack?.({ ok: false });
+        return;
+      }
+      if (userId !== c.from && userId !== c.to) {
+        ack?.({ ok: false });
+        return;
+      }
+      c.status = "ended";
+      c.updatedAt = Date.now();
+      const peer = c.from === userId ? c.to : c.from;
+      emitToUser(peer, "call:ended", {
+        callId: c.callId,
+        by: userId,
+        reason: "left",
+        ts: Date.now(),
+      });
+      calls.delete(callId);
       ack?.({ ok: true });
     });
 
@@ -167,8 +222,23 @@ function createCallSignaling(httpServer) {
 
     socket.on("disconnect", () => {
       const uid = socket.data.userId;
-      if (uid && online.get(uid) === socket.id) {
-        online.delete(uid);
+      if (!uid) return;
+      removeSocketFromUser(uid, socket.id);
+      if (userSockets.has(uid)) return;
+
+      for (const [callId, c] of calls.entries()) {
+        if (!["invited", "room_ready", "active"].includes(c.status)) continue;
+        if (c.from !== uid && c.to !== uid) continue;
+        c.status = "ended";
+        c.updatedAt = Date.now();
+        const peer = c.from === uid ? c.to : c.from;
+        emitToUser(peer, "call:ended", {
+          callId: c.callId,
+          by: uid,
+          reason: "disconnect",
+          ts: Date.now(),
+        });
+        calls.delete(callId);
       }
     });
   });
@@ -177,4 +247,3 @@ function createCallSignaling(httpServer) {
 }
 
 module.exports = { createCallSignaling };
-

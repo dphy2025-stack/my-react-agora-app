@@ -14,7 +14,8 @@ export function useCallSignaling({ userId, onIncoming, joinAgoraRoom }) {
     try {
       await joinAgoraRoom(payload);
       joinedCallRef.current = payload.callId;
-      socketRef.current?.emit("call:joined", { callId: payload.callId });
+      socketRef.current?.emit("call:joined", { callId: payload.callId }, () => {});
+      socketRef.current?.emit("call:room:ack", { callId: payload.callId }, () => {});
     } finally {
       joiningRef.current = false;
     }
@@ -33,7 +34,7 @@ export function useCallSignaling({ userId, onIncoming, joinAgoraRoom }) {
     });
     socketRef.current = socket;
 
-    socket.on("connect", () => {
+    const handleConnect = () => {
       socket.emit("auth:bind", { userId });
       socket.emit("call:sync", {}, (res) => {
         if (!res?.ok || !Array.isArray(res.calls)) return;
@@ -46,18 +47,33 @@ export function useCallSignaling({ userId, onIncoming, joinAgoraRoom }) {
           });
         }
       });
-    });
+    };
+    socket.on("connect", handleConnect);
 
     if (typeof onIncoming === "function") {
       socket.on("call:incoming", onIncoming);
     }
 
-    socket.on("call:room", async (payload) => {
-      socket.emit("call:room:ack", { callId: payload.callId });
+    const handleRoom = async (payload) => {
       await safeJoin(payload);
-    });
+    };
+    socket.on("call:room", handleRoom);
+
+    const handleEnded = (payload) => {
+      if (payload?.callId && joinedCallRef.current === payload.callId) {
+        joinedCallRef.current = null;
+      }
+      joiningRef.current = false;
+    };
+    socket.on("call:ended", handleEnded);
 
     return () => {
+      socket.off("connect", handleConnect);
+      if (typeof onIncoming === "function") {
+        socket.off("call:incoming", onIncoming);
+      }
+      socket.off("call:room", handleRoom);
+      socket.off("call:ended", handleEnded);
       socket.disconnect();
       socketRef.current = null;
     };
@@ -76,6 +92,13 @@ export function useCallSignaling({ userId, onIncoming, joinAgoraRoom }) {
       new Promise((resolve) => {
         socketRef.current?.emit("call:sync", {}, resolve);
       }),
+    leave: (callId) =>
+      new Promise((resolve) => {
+        if (callId && joinedCallRef.current === callId) {
+          joinedCallRef.current = null;
+        }
+        joiningRef.current = false;
+        socketRef.current?.emit("call:leave", { callId }, resolve);
+      }),
   };
 }
-

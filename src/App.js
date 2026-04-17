@@ -270,6 +270,8 @@ const normalizeCallUser = (rawValue) => {
       birthDate: "",
       emoji: "",
       adminMuted: false,
+      socketId: "",
+      agoraUid: "",
     };
   }
 
@@ -287,6 +289,8 @@ const normalizeCallUser = (rawValue) => {
       birthDate: "",
       emoji: "",
       adminMuted: false,
+      socketId: "",
+      agoraUid: "",
     };
   }
 
@@ -303,6 +307,8 @@ const normalizeCallUser = (rawValue) => {
     birthDate: rawValue.birthDate || "",
     emoji: rawValue.emoji || "",
     adminMuted: Boolean(rawValue.adminMuted),
+    socketId: rawValue.socketId || "",
+    agoraUid: rawValue.agoraUid ?? "",
   };
 };
 
@@ -442,6 +448,7 @@ const App = () => {
   const autoRoomPermissionRef = useRef({ until: 0, reason: "" });
   const isLeavingCallRef = useRef(false);
   const blockedInviteRoomKeysRef = useRef({});
+  const localCallEntryKeyRef = useRef("");
 
   const translations = {
     fa: {
@@ -1577,14 +1584,24 @@ const App = () => {
         const normalized = normalizeCallUser(item);
         const isValid = Boolean(normalized.name && normalized.name !== "User");
         if (!isValid) return;
-        filtered[id] = item;
-        callParticipantsRef.current[normalized.uid || id] = normalized.name || normalized.uid || String(id);
+        filtered[id] = {
+          ...item,
+          socketId: normalized.socketId || id,
+          agoraUid: normalized.agoraUid ?? "",
+        };
+        callParticipantsRef.current[normalized.uid || normalized.socketId || id] =
+          normalized.name || normalized.uid || String(id);
       });
       const newIds = Object.keys(filtered);
       const previousIds = previousUserIdsRef.current;
       const addedIds = newIds.filter((id) => !previousIds.includes(id));
+      const hasAddedRemote = addedIds.some((id) => {
+        const normalized = normalizeCallUser(filtered[id]);
+        const remoteAgoraUid = normalized.agoraUid;
+        return String(remoteAgoraUid) !== String(userUID);
+      });
 
-      if (inCall && !isLeavingCallRef.current && addedIds.some((id) => Number(id) !== Number(userUID))) {
+      if (inCall && !isLeavingCallRef.current && hasAddedRemote) {
         joinSoundRef.current.currentTime = 0;
         joinSoundRef.current.volume = 0.35;
         joinSoundRef.current.play().catch(() => {});
@@ -1612,6 +1629,7 @@ const App = () => {
 
   useEffect(() => {
     if (!inCall || !isGroupCallSession || !activeRoomKey || !profileUid || userUID === null) return undefined;
+    if (!localCallEntryKeyRef.current) return undefined;
     const muteRef = ref(db, `muteCommands/${activeRoomKey}/${profileUid}`);
     const unsubscribe = onValue(muteRef, async (snapshot) => {
       const data = snapshot.val();
@@ -1622,12 +1640,12 @@ const App = () => {
           await applyTrackMutedState(localTrackRef.current, true);
           setIsMuted(true);
           setAdminMuteLocked(true);
-          await update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), { adminMuted: true }).catch(() => {});
+          await update(ref(db, `callUsers/${activeRoomKey}/${localCallEntryKeyRef.current}`), { adminMuted: true }).catch(() => {});
         } else if (action === "unmute") {
           await applyTrackMutedState(localTrackRef.current, false);
           setIsMuted(false);
           setAdminMuteLocked(false);
-          await update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), { adminMuted: false }).catch(() => {});
+          await update(ref(db, `callUsers/${activeRoomKey}/${localCallEntryKeyRef.current}`), { adminMuted: false }).catch(() => {});
         }
       }
       await update(muteRef, {
@@ -1734,8 +1752,8 @@ const App = () => {
         event.preventDefault();
         event.returnValue = t.leavePageWarning;
       }
-      if (userUID && activeRoomKey) {
-        remove(ref(db, `callUsers/${activeRoomKey}/${userUID}`)).catch(() => {});
+      if (activeRoomKey && localCallEntryKeyRef.current) {
+        remove(ref(db, `callUsers/${activeRoomKey}/${localCallEntryKeyRef.current}`)).catch(() => {});
       }
     };
 
@@ -1746,10 +1764,11 @@ const App = () => {
   useEffect(() => {
     if (!inCall || !activeRoomKey || userUID === null) return undefined;
     if (isLeavingCallRef.current) return undefined;
+    if (!localCallEntryKeyRef.current) return undefined;
 
     const updatePresence = () => {
       if (isLeavingCallRef.current) return;
-      update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), {
+      update(ref(db, `callUsers/${activeRoomKey}/${localCallEntryKeyRef.current}`), {
         lastSeen: Date.now(),
         networkStatus: localNetworkStatus,
         name: profileName || username || profileUid || "User",
@@ -1947,6 +1966,7 @@ const App = () => {
     const suppressErrorNotify = Boolean(options?.suppressErrorNotify);
     if (!profileLoaded) return false;
     if (joinInFlightRef.current) return false;
+    if (isLeavingCallRef.current) return false;
     if (joining || inCall || inCallHardRef.current) return false;
     if (client.connectionState && client.connectionState !== "DISCONNECTED") {
       await client.leave().catch(() => {});
@@ -2102,8 +2122,12 @@ const App = () => {
       client.enableAudioVolumeIndicator();
       client.removeAllListeners();
 
-      const callUserRef = ref(db, `callUsers/${finalRoomKey}/${joinedUid}`);
+      const callEntryKey = `${sessionInstanceRef.current}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      localCallEntryKeyRef.current = callEntryKey;
+      const callUserRef = ref(db, `callUsers/${finalRoomKey}/${callEntryKey}`);
       await set(callUserRef, {
+        socketId: callEntryKey,
+        agoraUid: joinedUid,
         uid: profileUid || "",
         profileId: profileId || "",
         name: displayName,
@@ -2118,7 +2142,7 @@ const App = () => {
         lastSeen: Date.now(),
       });
       callParticipantsRef.current = {
-        [profileUid || String(joinedUid)]: displayName,
+        [profileUid || callEntryKey || String(joinedUid)]: displayName,
       };
       callUserDisconnectRef.current = onDisconnect(callUserRef);
       callUserDisconnectRef.current.remove().catch(() => {});
@@ -2191,7 +2215,14 @@ const App = () => {
       });
 
       client.on("user-left", async (user) => {
-        await remove(ref(db, `callUsers/${finalRoomKey}/${user.uid}`)).catch(() => {});
+        const usersSnap = await get(ref(db, `callUsers/${finalRoomKey}`)).catch(() => null);
+        const usersMap = usersSnap?.val?.() || {};
+        const removeTasks = Object.entries(usersMap)
+          .filter(([, value]) => String(normalizeCallUser(value).agoraUid) === String(user.uid))
+          .map(([entryKey]) => remove(ref(db, `callUsers/${finalRoomKey}/${entryKey}`)).catch(() => {}));
+        if (removeTasks.length) {
+          await Promise.allSettled(removeTasks);
+        }
       });
 
       await Promise.allSettled(
@@ -2232,7 +2263,7 @@ const App = () => {
       setRoomName(finalName);
       setRoomPassword(safeRoomPassword);
       setRoomMode(requestedMode);
-      previousUserIdsRef.current = [String(joinedUid)];
+      previousUserIdsRef.current = [String(callEntryKey)];
       setGroupLobbyId("");
       setGroupLobbyMeta(null);
       setGroupLobbyMembers({});
@@ -2252,6 +2283,7 @@ const App = () => {
       localTrackRef.current = null;
       await client.leave().catch(() => {});
       client.removeAllListeners();
+      localCallEntryKeyRef.current = "";
       const msg = String(error?.message || t.backendTokenError);
       if (/token cancel|agora token cancel|agorartc.*leave/i.test(msg)) {
         return false;
@@ -2548,6 +2580,7 @@ const App = () => {
     isLeavingCallRef.current = true;
     const leavingRoomKey = activeRoomKey;
     const leavingUserUid = userUID;
+    const leavingCallEntryKey = localCallEntryKeyRef.current;
     const leaveTs = Date.now();
     callActionCooldownUntilRef.current = Date.now() + 10 * 1000;
     autoJoinCooldownUntilRef.current = leaveTs + 15000;
@@ -2579,8 +2612,8 @@ const App = () => {
         }).catch(() => {});
       }
 
-      if (leavingUserUid && leavingRoomKey) {
-        await remove(ref(db, `callUsers/${leavingRoomKey}/${leavingUserUid}`)).catch(() => {});
+      if (leavingRoomKey && leavingCallEntryKey) {
+        await remove(ref(db, `callUsers/${leavingRoomKey}/${leavingCallEntryKey}`)).catch(() => {});
       }
 
       if (leavingRoomKey && isInviteRequestRoomSession && profileUid) {
@@ -2637,6 +2670,7 @@ const App = () => {
       setPendingGroupJoin(null);
       speakingSecondsRef.current = 0;
       previousUserIdsRef.current = [];
+      localCallEntryKeyRef.current = "";
       isLeavingCallRef.current = false;
     }
   }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, isInviteRequestRoomSession, profileUid, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
@@ -2927,16 +2961,26 @@ const App = () => {
     async (targetUid, shouldUnmute = false) => {
       if (!isRoomAdmin || !activeRoomKey || !targetUid) return;
       const action = shouldUnmute ? "unmute" : "mute";
-      await Promise.allSettled([
-        set(ref(db, `muteCommands/${activeRoomKey}/${targetUid}`), {
-          byUid: profileUid,
-          byName: profileName || username || "Admin",
-          action,
-          status: "pending",
-          createdAt: Date.now(),
-        }),
-        update(ref(db, `callUsers/${activeRoomKey}/${targetUid}`), { adminMuted: !shouldUnmute }),
-      ]);
+      await set(ref(db, `muteCommands/${activeRoomKey}/${targetUid}`), {
+        byUid: profileUid,
+        byName: profileName || username || "Admin",
+        action,
+        status: "pending",
+        createdAt: Date.now(),
+      }).catch(() => {});
+
+      const usersSnap = await get(ref(db, `callUsers/${activeRoomKey}`)).catch(() => null);
+      const usersMap = usersSnap?.val?.() || {};
+      const updates = {};
+      Object.entries(usersMap).forEach(([entryKey, value]) => {
+        const normalized = normalizeCallUser(value);
+        if (normalized.uid === targetUid) {
+          updates[`${entryKey}/adminMuted`] = !shouldUnmute;
+        }
+      });
+      if (Object.keys(updates).length > 0) {
+        await update(ref(db, `callUsers/${activeRoomKey}`), updates).catch(() => {});
+      }
     },
     [activeRoomKey, isRoomAdmin, profileName, profileUid, username]
   );
@@ -3081,12 +3125,14 @@ const App = () => {
 
   const triggerJoinWithRetries = useCallback(
     async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
+      if (isLeavingCallRef.current || joinInFlightRef.current) return false;
       setRoomMode(mode);
       setRoomName(nextRoomName);
       setRoomPassword(nextRoomPassword);
       const maxAttempts = isLegacyAndroid ? 6 : 4;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         if (inCall) return true;
+        if (isLeavingCallRef.current) return false;
         const joined = await joinCallInternal({
           mode,
           roomName: nextRoomName,
@@ -4758,8 +4804,8 @@ const App = () => {
           <div className="users-list">
             {Object.keys(safeUsersInCall).map((uid) => {
               const userInfo = normalizeCallUser(safeUsersInCall[uid]);
-              const isSelf = Number(uid) === Number(userUID);
-              const isSpeaking = Boolean(speakingUsers[uid]);
+              const isSelf = String(userInfo.agoraUid) === String(userUID);
+              const isSpeaking = Boolean(speakingUsers[userInfo.agoraUid]);
               const shouldShowSpeaking = isSpeaking && !(isSelf && isMuted);
               const stale = Date.now() - Number(userInfo.lastSeen || 0) > CALL_USER_STALE_MS;
               const resolvedNetwork = stale ? NETWORK_STATUS.weak : userInfo.networkStatus;
