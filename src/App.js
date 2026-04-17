@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import AgoraRTC from "agora-rtc-sdk-ng";
 import swal from "sweetalert";
 import { initializeApp } from "firebase/app";
@@ -19,7 +19,6 @@ import {
   Settings,
   Stop,
   Tune,
-  DeleteForever,
   VolumeDown,
   VolumeUp,
   PersonRemove,
@@ -114,6 +113,8 @@ const NETWORK_STATUS = {
 const INVITE_TTL_MS = 2 * 60 * 1000;
 const SPEAKING_LEVEL_THRESHOLD = 17;
 const CALL_USER_STALE_MS = 90 * 1000;
+const AGORA_JOIN_TIMEOUT_MS = 25 * 1000;
+const AGORA_PUBLISH_TIMEOUT_MS = 15 * 1000;
 const RINGTONES = {
   ringtone_1: ringtone1,
   ringtone_2: ringtone2,
@@ -139,6 +140,18 @@ const withTimeout = async (url, options = {}, timeoutMs = 4000) => {
   } finally {
     clearTimeout(timeout);
   }
+};
+
+const withPromiseTimeout = (promise, timeoutMs, timeoutMessage = "Operation timed out") => {
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 };
 
 const applyTrackMutedState = async (track, muted) => {
@@ -1728,8 +1741,10 @@ const App = () => {
 
   useEffect(() => {
     if (!inCall || !activeRoomKey || userUID === null) return undefined;
+    if (isLeavingCallRef.current) return undefined;
 
-    const updatePresence = () =>
+    const updatePresence = () => {
+      if (isLeavingCallRef.current) return;
       update(ref(db, `callUsers/${activeRoomKey}/${userUID}`), {
         lastSeen: Date.now(),
         networkStatus: localNetworkStatus,
@@ -1738,6 +1753,7 @@ const App = () => {
         emoji: profileEmoji || "",
         color: profileColor || DEFAULT_PROFILE_COLOR,
       }).catch(() => {});
+    };
 
     updatePresence();
     const interval = setInterval(updatePresence, 2500);
@@ -2031,13 +2047,21 @@ const App = () => {
 
       let joinedUid;
       try {
-        joinedUid = await client.join(APP_ID, finalName, token, uid);
+        joinedUid = await withPromiseTimeout(
+          client.join(APP_ID, finalName, token, uid),
+          AGORA_JOIN_TIMEOUT_MS,
+          "Agora join timeout"
+        );
       } catch (joinError) {
         const text = String(joinError?.message || joinError || "");
         if (/INVALID_OPERATION/i.test(text)) {
           await client.leave().catch(() => {});
           await new Promise((resolve) => setTimeout(resolve, 220));
-          joinedUid = await client.join(APP_ID, finalName, token, uid);
+          joinedUid = await withPromiseTimeout(
+            client.join(APP_ID, finalName, token, uid),
+            AGORA_JOIN_TIMEOUT_MS,
+            "Agora join timeout"
+          );
         } else {
           throw joinError;
         }
@@ -2053,7 +2077,11 @@ const App = () => {
       const publishAttempts = isLegacyAndroid ? 4 : 3;
       for (let attempt = 1; attempt <= publishAttempts; attempt += 1) {
         try {
-          await client.publish([localTrack]);
+          await withPromiseTimeout(
+            client.publish([localTrack]),
+            AGORA_PUBLISH_TIMEOUT_MS,
+            "Agora publish timeout"
+          );
           published = true;
           break;
         } catch (_error) {
@@ -2525,6 +2553,9 @@ const App = () => {
     hideCallProgressDialog();
     outgoingRequestDialogOpenRef.current = false;
     setOutgoingCallRequest(null);
+    inCallHardRef.current = false;
+    setJoining(false);
+    setInCall(false);
     try {
       mediaRecorderRef.current?.stop();
       localTrackRef.current?.stop();
@@ -3145,8 +3176,10 @@ const App = () => {
         }, cooldownLeft + 140);
         return;
       }
-      if (inCall) return;
-      if (isLeavingCallRef.current) return;
+      if (inCall || isLeavingCallRef.current) {
+        releaseHandledKey();
+        return;
+      }
       const flowCallId = `recv_${roomReadyInvite.id}`;
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
       receiverJoinFlowRef.current = { callId: flowCallId, joining: true };
