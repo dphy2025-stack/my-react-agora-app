@@ -3004,7 +3004,11 @@ const App = () => {
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
       const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
-      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
+      if (
+        roomReadyCreatedAt > 0 &&
+        roomReadyCreatedAt + 30000 <= ignoreRoomReadyBeforeRef.current &&
+        Date.now() < autoJoinCooldownUntilRef.current
+      ) {
         update(ref(db, consumeRefPath), {
           consumedAt: Date.now(),
           ignoredByLeave: true,
@@ -3012,7 +3016,13 @@ const App = () => {
         }).catch(() => {});
         return;
       }
-      if (Date.now() < autoJoinCooldownUntilRef.current) return;
+      const cooldownLeft = autoJoinCooldownUntilRef.current - Date.now();
+      if (cooldownLeft > 0) {
+        setTimeout(() => {
+          processReceiverRoomReadyInvite(roomReadyInvite, consumeRefPath, handledKey);
+        }, cooldownLeft + 140);
+        return;
+      }
       if (inCall) return;
       const flowCallId = `recv_${roomReadyInvite.id}`;
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
@@ -3145,7 +3155,6 @@ const App = () => {
     if (!profileUid) return undefined;
     const inviteRef = ref(db, `invites/${profileUid}`);
     const unsubscribe = onValue(inviteRef, (snapshot) => {
-      if (Date.now() < autoJoinCooldownUntilRef.current) return;
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...value }));
       const roomReadyInvite = rows.find(
@@ -3158,15 +3167,6 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
-      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
-      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
-        update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
-          consumedAt: Date.now(),
-          ignoredByLeave: true,
-          ignoredAt: Date.now(),
-        }).catch(() => {});
-        return;
-      }
       const globalHandledKey = `any_${roomReadyInvite.id}`;
       if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
@@ -3185,7 +3185,6 @@ const App = () => {
     if (!profileUid) return undefined;
     const readyRef = ref(db, `roomReadyByInvite/${profileUid}`);
     const unsubscribe = onValue(readyRef, (snapshot) => {
-      if (Date.now() < autoJoinCooldownUntilRef.current) return;
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...(value || {}) }));
       const roomReadyInvite = rows.find(
@@ -3197,15 +3196,6 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
-      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
-      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
-        update(ref(db, `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`), {
-          consumedAt: Date.now(),
-          ignoredByLeave: true,
-          ignoredAt: Date.now(),
-        }).catch(() => {});
-        return;
-      }
       const globalHandledKey = `any_${roomReadyInvite.id}`;
       if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
