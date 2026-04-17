@@ -417,6 +417,8 @@ const App = () => {
   const inCallHardRef = useRef(false);
   const outgoingInviteProcessRef = useRef({});
   const autoJoinCooldownUntilRef = useRef(0);
+  const callActionCooldownUntilRef = useRef(0);
+  const incomingInviteSnoozeUntilRef = useRef({});
 
   const translations = {
     fa: {
@@ -799,7 +801,7 @@ const App = () => {
         }
         callProgressContentRef.current = "";
         notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
-      }, 75 * 1000);
+      }, 90 * 1000);
     },
     [closeSwalSafely, inCall, notify, openSwalSafely, t.roomCreateFailed]
   );
@@ -2169,8 +2171,8 @@ const App = () => {
 
       setActiveRoomName(finalName);
       setActiveRoomKey(finalRoomKey);
-      setRoomName(finalName);
-      setRoomPassword(safeRoomPassword);
+      setRoomName("");
+      setRoomPassword("");
       setRoomMode(requestedMode);
       previousUserIdsRef.current = [String(joinedUid)];
       setGroupLobbyId("");
@@ -2479,6 +2481,7 @@ const App = () => {
   const leaveCall = useCallback(async () => {
     const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
     if (!ok) return;
+    callActionCooldownUntilRef.current = Date.now() + 10 * 1000;
     autoJoinCooldownUntilRef.current = Date.now() + 15000;
     incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
@@ -2514,6 +2517,8 @@ const App = () => {
       setConnectionQuality("-");
       setActiveRoomName("");
       setActiveRoomKey("");
+      setRoomName("");
+      setRoomPassword("");
       setUserUID(null);
       setActiveBackendUrl("");
       setCallStartedAt(null);
@@ -2926,6 +2931,10 @@ const App = () => {
     [profileName, profileUid, username]
   );
 
+  const getCallActionCooldownSeconds = useCallback(() => {
+    return Math.max(0, Math.ceil((callActionCooldownUntilRef.current - Date.now()) / 1000));
+  }, []);
+
   const triggerJoinWithRetries = useCallback(
     async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
       setRoomMode(mode);
@@ -3061,6 +3070,7 @@ const App = () => {
     if (!incomingInvites.length) return;
     const invite = incomingInvites[0];
     if (!invite?.id) return;
+    if (Date.now() < Number(incomingInviteSnoozeUntilRef.current[invite.id] || 0)) return;
     if (handledIncomingInviteRef.current[invite.id]) return;
     handledIncomingInviteRef.current[invite.id] = true;
 
@@ -3073,6 +3083,12 @@ const App = () => {
       );
       stopIncomingRingtone();
       if (accepted) {
+        const waitSeconds = getCallActionCooldownSeconds();
+        if (waitSeconds > 0) {
+          incomingInviteSnoozeUntilRef.current[invite.id] = Date.now() + waitSeconds * 1000;
+          await notify(`wait (${waitSeconds}) seconds and try again`, "warning", "", { autoCloseMs: 1800 });
+          return;
+        }
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
@@ -3101,7 +3117,9 @@ const App = () => {
     profileName,
     profileUid,
     pushBrowserNotification,
+    notify,
     stopIncomingRingtone,
+    getCallActionCooldownSeconds,
     t.incomingCall,
     t.incomingCallBody,
     t.waitingBackend,
@@ -3379,6 +3397,11 @@ const App = () => {
     async (target) => {
       const targetUid = target?.uid || target?.contactUid || "";
       if (!targetUid || !profileUid) return false;
+      const waitSeconds = getCallActionCooldownSeconds();
+      if (waitSeconds > 0) {
+        await notify(`wait (${waitSeconds}) seconds and try again`, "warning", "", { autoCloseMs: 1800 });
+        return false;
+      }
       if (groupLobbyId || inCall) {
         await notify(t.busyInLobby, "warning");
         return false;
@@ -3450,6 +3473,7 @@ const App = () => {
       notify,
       inCall,
       groupLobbyId,
+      getCallActionCooldownSeconds,
       profileId,
       profileName,
       profileUid,
