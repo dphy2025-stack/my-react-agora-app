@@ -422,6 +422,7 @@ const App = () => {
   const incomingInviteSnoozeUntilRef = useRef({});
   const ignoreRoomReadyBeforeRef = useRef(0);
   const autoRoomPermissionRef = useRef({ until: 0, reason: "" });
+  const isLeavingCallRef = useRef(false);
 
   const translations = {
     fa: {
@@ -1564,7 +1565,7 @@ const App = () => {
       const previousIds = previousUserIdsRef.current;
       const addedIds = newIds.filter((id) => !previousIds.includes(id));
 
-      if (inCall && addedIds.some((id) => Number(id) !== Number(userUID))) {
+      if (inCall && !isLeavingCallRef.current && addedIds.some((id) => Number(id) !== Number(userUID))) {
         joinSoundRef.current.currentTime = 0;
         joinSoundRef.current.volume = 0.35;
         joinSoundRef.current.play().catch(() => {});
@@ -2183,6 +2184,7 @@ const App = () => {
       setGroupLobbyMembers({});
       setShowGroupLobby(false);
       inCallHardRef.current = true;
+      isLeavingCallRef.current = false;
       setInCall(true);
       setIsGroupCallSession(Boolean(existingMeta.isGroupCall || options?.isGroupCall));
       setAdminMuteLocked(false);
@@ -2488,6 +2490,7 @@ const App = () => {
   const leaveCall = useCallback(async () => {
     const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
     if (!ok) return;
+    isLeavingCallRef.current = true;
     const leavingRoomKey = activeRoomKey;
     const leavingUserUid = userUID;
     const leaveTs = Date.now();
@@ -2567,6 +2570,8 @@ const App = () => {
       setSelectedCallUser(null);
       setPendingGroupJoin(null);
       speakingSecondsRef.current = 0;
+      previousUserIdsRef.current = [];
+      isLeavingCallRef.current = false;
     }
   }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
 
@@ -3092,11 +3097,8 @@ const App = () => {
         releaseHandledKey();
         return;
       }
-      if (
-        roomReadyCreatedAt > 0 &&
-        roomReadyCreatedAt + 30000 <= ignoreRoomReadyBeforeRef.current &&
-        Date.now() < autoJoinCooldownUntilRef.current
-      ) {
+      const staleByLeaveTs = ignoreRoomReadyBeforeRef.current;
+      if (roomReadyCreatedAt > 0 && staleByLeaveTs > 0 && roomReadyCreatedAt <= staleByLeaveTs) {
         update(ref(db, consumeRefPath), {
           consumedAt: Date.now(),
           ignoredByLeave: true,
@@ -3113,6 +3115,7 @@ const App = () => {
         return;
       }
       if (inCall) return;
+      if (isLeavingCallRef.current) return;
       const flowCallId = `recv_${roomReadyInvite.id}`;
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
       receiverJoinFlowRef.current = { callId: flowCallId, joining: true };
