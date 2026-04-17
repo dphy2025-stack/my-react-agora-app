@@ -36,6 +36,7 @@ import {
   VisibilityOff,
   Group,
   PersonOff,
+  DeleteForever,
 } from "@mui/icons-material";
 import PersonIcon from "@mui/icons-material/Person";
 import notificationSound from "./assets/welcomeNotif.mp3";
@@ -304,6 +305,9 @@ const normalizeCallUser = (rawValue) => {
     adminMuted: Boolean(rawValue.adminMuted),
   };
 };
+
+const inviteEventTs = (item) =>
+  Number(item?.roomCreatedAt || item?.respondedAt || item?.createdAt || 0);
 
 const App = () => {
   const androidVersion = useMemo(() => {
@@ -3053,6 +3057,28 @@ const App = () => {
     return Date.now() < Number(autoRoomPermissionRef.current.until || 0);
   }, []);
 
+  const markRoomReadyConsumed = useCallback(
+    async (inviteId, consumeRefPath, extraPayload = {}) => {
+      if (!inviteId || !consumeRefPath || !profileUid) return;
+      const payload = {
+        consumedAt: Date.now(),
+        ...extraPayload,
+      };
+      const mirrorPath = consumeRefPath.startsWith(`invites/${profileUid}/`)
+        ? `roomReadyByInvite/${profileUid}/${inviteId}`
+        : consumeRefPath.startsWith(`roomReadyByInvite/${profileUid}/`)
+          ? `invites/${profileUid}/${inviteId}`
+          : "";
+      const paths = [consumeRefPath, mirrorPath].filter(Boolean);
+      await Promise.allSettled(
+        paths.map((path) =>
+          update(ref(db, path), payload).catch(() => {})
+        )
+      );
+    },
+    [profileUid]
+  );
+
   const triggerJoinWithRetries = useCallback(
     async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
       setRoomMode(mode);
@@ -3125,7 +3151,7 @@ const App = () => {
         releaseHandledKey();
         return;
       }
-      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
+      const roomReadyCreatedAt = inviteEventTs(roomReadyInvite);
       const releaseHandledKey = () => {
         if (handledKey) {
           delete handledRoomReadyInviteRef.current[handledKey];
@@ -3133,8 +3159,7 @@ const App = () => {
       };
       const roomAgeMs = roomReadyCreatedAt > 0 ? Date.now() - roomReadyCreatedAt : 0;
       if (roomAgeMs > INVITE_TTL_MS) {
-        update(ref(db, consumeRefPath), {
-          consumedAt: Date.now(),
+        markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
           ignoredExpired: true,
           ignoredAt: Date.now(),
         }).catch(() => {});
@@ -3147,12 +3172,9 @@ const App = () => {
         releaseHandledKey();
         return;
       }
-      const latestCreatedAt = Number(
-        consumeData.roomCreatedAt || consumeData.respondedAt || consumeData.createdAt || roomReadyCreatedAt || 0
-      );
+      const latestCreatedAt = inviteEventTs(consumeData) || roomReadyCreatedAt || 0;
       if (latestCreatedAt > 0 && Date.now() - latestCreatedAt > INVITE_TTL_MS) {
-        update(ref(db, consumeRefPath), {
-          consumedAt: Date.now(),
+        markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
           ignoredExpired: true,
           ignoredAt: Date.now(),
         }).catch(() => {});
@@ -3161,8 +3183,7 @@ const App = () => {
       }
       const staleByLeaveTs = ignoreRoomReadyBeforeRef.current;
       if (roomReadyCreatedAt > 0 && staleByLeaveTs > 0 && roomReadyCreatedAt <= staleByLeaveTs) {
-        update(ref(db, consumeRefPath), {
-          consumedAt: Date.now(),
+        markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
           ignoredByLeave: true,
           ignoredAt: Date.now(),
         }).catch(() => {});
@@ -3182,6 +3203,10 @@ const App = () => {
       }
       const flowCallId = `recv_${roomReadyInvite.id}`;
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
+      if (receiverJoinFlowRef.current.joining && receiverJoinFlowRef.current.callId !== flowCallId) {
+        releaseHandledKey();
+        return;
+      }
       receiverJoinFlowRef.current = { callId: flowCallId, joining: true };
       if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
       showCallProgressDialog(t.incomingCall, t.waitingBackend);
@@ -3212,8 +3237,7 @@ const App = () => {
         if (joined || inCall) {
           if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
           hideCallProgressDialog();
-          update(ref(db, consumeRefPath), {
-            consumedAt: Date.now(),
+          markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
             consumedBy: profileUid,
           }).catch(() => {});
           return;
@@ -3244,6 +3268,7 @@ const App = () => {
       triggerJoinWithRetries,
       waitForInviteSenderReady,
       hasAutoRoomPermission,
+      markRoomReadyConsumed,
     ]
   );
 
@@ -3316,18 +3341,20 @@ const App = () => {
     const unsubscribe = onValue(inviteRef, (snapshot) => {
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...value }));
-      const roomReadyInvite = rows.find(
-        (item) =>
-          item.status === "room_ready" &&
-          item.roomName &&
-          item.roomPassword &&
-          item.toUid === profileUid &&
-          now - Number(item.roomCreatedAt || item.respondedAt || item.createdAt || 0) <= INVITE_TTL_MS &&
-          !item.consumedAt
-      );
+      const roomReadyInvite = rows
+        .filter(
+          (item) =>
+            item.status === "room_ready" &&
+            item.roomName &&
+            item.roomPassword &&
+            item.toUid === profileUid &&
+            now - inviteEventTs(item) <= INVITE_TTL_MS &&
+            !item.consumedAt
+        )
+        .sort((a, b) => inviteEventTs(b) - inviteEventTs(a))
+        .find((item) => !handledRoomReadyInviteRef.current[`any_${item.id}`]);
       if (!roomReadyInvite) return;
       const globalHandledKey = `any_${roomReadyInvite.id}`;
-      if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
       setTimeout(() => {
         processReceiverRoomReadyInvite(
@@ -3346,17 +3373,19 @@ const App = () => {
     const unsubscribe = onValue(readyRef, (snapshot) => {
       const now = Date.now();
       const rows = Object.entries(snapshot.val() || {}).map(([id, value]) => ({ id, ...(value || {}) }));
-      const roomReadyInvite = rows.find(
-        (item) =>
-          item.roomName &&
-          item.roomPassword &&
-          item.toUid === profileUid &&
-          now - Number(item.roomCreatedAt || item.respondedAt || item.createdAt || 0) <= INVITE_TTL_MS &&
-          !item.consumedAt
-      );
+      const roomReadyInvite = rows
+        .filter(
+          (item) =>
+            item.roomName &&
+            item.roomPassword &&
+            item.toUid === profileUid &&
+            now - inviteEventTs(item) <= INVITE_TTL_MS &&
+            !item.consumedAt
+        )
+        .sort((a, b) => inviteEventTs(b) - inviteEventTs(a))
+        .find((item) => !handledRoomReadyInviteRef.current[`any_${item.id}`]);
       if (!roomReadyInvite) return;
       const globalHandledKey = `any_${roomReadyInvite.id}`;
-      if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
       setTimeout(() => {
         processReceiverRoomReadyInvite(
@@ -3729,6 +3758,9 @@ const App = () => {
             roomName: room,
             roomPassword: password,
             roomCreatedBy: profileUid,
+            fromUid: profileUid,
+            toUid: outgoingCallRequest.targetUid,
+            inviteId: outgoingCallRequest.inviteId,
             roomCreatedAt: Date.now(),
             receiverJoinDelayMs: 2000,
             respondedAt: Date.now(),
