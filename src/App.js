@@ -358,6 +358,7 @@ const App = () => {
   const [pendingGroupJoin, setPendingGroupJoin] = useState(null);
   const [outgoingCallRequest, setOutgoingCallRequest] = useState(null);
   const [isGroupCallSession, setIsGroupCallSession] = useState(false);
+  const [isInviteRequestRoomSession, setIsInviteRequestRoomSession] = useState(false);
   const [sessionBlocked, setSessionBlocked] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -423,6 +424,7 @@ const App = () => {
   const ignoreRoomReadyBeforeRef = useRef(0);
   const autoRoomPermissionRef = useRef({ until: 0, reason: "" });
   const isLeavingCallRef = useRef(false);
+  const blockedInviteRoomKeysRef = useRef({});
 
   const translations = {
     fa: {
@@ -1585,6 +1587,7 @@ const App = () => {
       const data = snapshot.val() || {};
       const isGroup = Boolean(data.isGroupCall);
       setIsGroupCallSession(isGroup);
+      setIsInviteRequestRoomSession(Boolean(data.isInviteRequestRoom));
       setIsRoomAdmin(Boolean(isGroup && data.createdByUid && data.createdByUid === profileUid));
     });
     return () => unsubscribe();
@@ -1956,6 +1959,24 @@ const App = () => {
     const requestedRoomName = String(options.roomName ?? roomName).trim();
     const requestedRoomPassword = String(options.roomPassword ?? roomPassword).trim();
     const requestedMode = options.mode || roomMode;
+    const requestedRoomKey = requestedRoomName ? toRoomKey(requestedRoomName) : "";
+    const isInviteJoinAttempt = Boolean(options?.isInviteRequestRoom);
+
+    if (requestedMode === "join" && requestedRoomKey) {
+      if (blockedInviteRoomKeysRef.current[requestedRoomKey]) {
+        return false;
+      }
+      const roomMetaSnap = await get(ref(db, `roomMeta/${requestedRoomKey}`)).catch(() => null);
+      const roomMeta = roomMetaSnap?.val?.() || {};
+      const blockedByMeta = Boolean(profileUid && roomMeta?.blockedRejoinByUid?.[profileUid]);
+      if (blockedByMeta) {
+        blockedInviteRoomKeysRef.current[requestedRoomKey] = Date.now();
+        return false;
+      }
+      if (roomMeta?.isInviteRequestRoom && !isInviteJoinAttempt && !options?.allowFromLobbyStart) {
+        return false;
+      }
+    }
 
     if (!requestedRoomName) {
       await notify(t.roomNameRequired, "warning");
@@ -2077,6 +2098,7 @@ const App = () => {
         createdAt: existingMeta.createdAt || Date.now(),
         createdByUid: existingMeta.createdByUid || (requestedMode === "create" ? profileUid : ""),
         isGroupCall: Boolean(existingMeta.isGroupCall || options?.isGroupCall),
+        isInviteRequestRoom: Boolean(existingMeta.isInviteRequestRoom || options?.isInviteRequestRoom),
         expiresAt: Date.now() + ROOM_LIFETIME_MS,
       });
 
@@ -2187,6 +2209,7 @@ const App = () => {
       isLeavingCallRef.current = false;
       setInCall(true);
       setIsGroupCallSession(Boolean(existingMeta.isGroupCall || options?.isGroupCall));
+      setIsInviteRequestRoomSession(Boolean(existingMeta.isInviteRequestRoom || options?.isInviteRequestRoom));
       setAdminMuteLocked(false);
       setConnectionQuality("-");
       return true;
@@ -2525,6 +2548,13 @@ const App = () => {
         await remove(ref(db, `callUsers/${leavingRoomKey}/${leavingUserUid}`)).catch(() => {});
       }
 
+      if (leavingRoomKey && isInviteRequestRoomSession && profileUid) {
+        blockedInviteRoomKeysRef.current[leavingRoomKey] = Date.now();
+        await update(ref(db, `roomMeta/${leavingRoomKey}`), {
+          [`blockedRejoinByUid/${profileUid}`]: Date.now(),
+        }).catch(() => {});
+      }
+
       if (leavingRoomKey) {
         const usersSnap = await get(ref(db, `callUsers/${leavingRoomKey}`)).catch(() => null);
         const usersObj = usersSnap?.val?.() || {};
@@ -2567,13 +2597,14 @@ const App = () => {
       setLocalSpeaking(false);
       setAdminMuteLocked(false);
       setIsGroupCallSession(false);
+      setIsInviteRequestRoomSession(false);
       setSelectedCallUser(null);
       setPendingGroupJoin(null);
       speakingSecondsRef.current = 0;
       previousUserIdsRef.current = [];
       isLeavingCallRef.current = false;
     }
-  }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
+  }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, isInviteRequestRoomSession, profileUid, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
 
   const inviteCode = useMemo(() => {
     if (!activeRoomName || !roomPassword.trim()) return "-";
@@ -3138,7 +3169,7 @@ const App = () => {
             "join",
             roomReadyInvite.roomName,
             roomReadyInvite.roomPassword,
-            { allowFromLobbyStart: true }
+            { allowFromLobbyStart: true, isInviteRequestRoom: true }
           );
           if (joined || inCall) break;
           await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 12000);
@@ -3692,7 +3723,7 @@ const App = () => {
             return;
           }
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          const joined = await triggerJoinWithRetries("create", room, password);
+          const joined = await triggerJoinWithRetries("create", room, password, { isInviteRequestRoom: true });
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
@@ -3711,7 +3742,7 @@ const App = () => {
           }
           outgoingProcessMap[processKey] = true;
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
-          const joined = await triggerJoinWithRetries("join", item.roomName, item.roomPassword);
+          const joined = await triggerJoinWithRetries("join", item.roomName, item.roomPassword, { isInviteRequestRoom: true });
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
             hideCallProgressDialog();
