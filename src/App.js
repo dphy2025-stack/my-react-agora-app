@@ -419,6 +419,7 @@ const App = () => {
   const autoJoinCooldownUntilRef = useRef(0);
   const callActionCooldownUntilRef = useRef(0);
   const incomingInviteSnoozeUntilRef = useRef({});
+  const ignoreRoomReadyBeforeRef = useRef(0);
 
   const translations = {
     fa: {
@@ -2171,8 +2172,8 @@ const App = () => {
 
       setActiveRoomName(finalName);
       setActiveRoomKey(finalRoomKey);
-      setRoomName("");
-      setRoomPassword("");
+      setRoomName(finalName);
+      setRoomPassword(safeRoomPassword);
       setRoomMode(requestedMode);
       previousUserIdsRef.current = [String(joinedUid)];
       setGroupLobbyId("");
@@ -2481,10 +2482,14 @@ const App = () => {
   const leaveCall = useCallback(async () => {
     const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
     if (!ok) return;
+    const leaveTs = Date.now();
     callActionCooldownUntilRef.current = Date.now() + 10 * 1000;
-    autoJoinCooldownUntilRef.current = Date.now() + 15000;
+    autoJoinCooldownUntilRef.current = leaveTs + 15000;
+    ignoreRoomReadyBeforeRef.current = leaveTs;
     incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
+    outgoingRequestDialogOpenRef.current = false;
+    setOutgoingCallRequest(null);
     try {
       mediaRecorderRef.current?.stop();
       localTrackRef.current?.stop();
@@ -2998,6 +3003,15 @@ const App = () => {
   const processReceiverRoomReadyInvite = useCallback(
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
+      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
+      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
+        update(ref(db, consumeRefPath), {
+          consumedAt: Date.now(),
+          ignoredByLeave: true,
+          ignoredAt: Date.now(),
+        }).catch(() => {});
+        return;
+      }
       if (Date.now() < autoJoinCooldownUntilRef.current) return;
       if (inCall) return;
       const flowCallId = `recv_${roomReadyInvite.id}`;
@@ -3144,6 +3158,15 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
+      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
+      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
+        update(ref(db, `invites/${profileUid}/${roomReadyInvite.id}`), {
+          consumedAt: Date.now(),
+          ignoredByLeave: true,
+          ignoredAt: Date.now(),
+        }).catch(() => {});
+        return;
+      }
       const globalHandledKey = `any_${roomReadyInvite.id}`;
       if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
@@ -3174,6 +3197,15 @@ const App = () => {
           !item.consumedAt
       );
       if (!roomReadyInvite) return;
+      const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
+      if (roomReadyCreatedAt > 0 && roomReadyCreatedAt <= ignoreRoomReadyBeforeRef.current) {
+        update(ref(db, `roomReadyByInvite/${profileUid}/${roomReadyInvite.id}`), {
+          consumedAt: Date.now(),
+          ignoredByLeave: true,
+          ignoredAt: Date.now(),
+        }).catch(() => {});
+        return;
+      }
       const globalHandledKey = `any_${roomReadyInvite.id}`;
       if (handledRoomReadyInviteRef.current[globalHandledKey]) return;
       handledRoomReadyInviteRef.current[globalHandledKey] = true;
