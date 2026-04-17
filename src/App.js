@@ -73,6 +73,7 @@ const TOKEN_ENDPOINT_PATHS = ["/api/rooms/token", "/rooms/token", "/api/token"];
 const PROFILE_LOADING_MIN_MS = 3000;
 const ACTIVE_SESSION_TTL_MS = 20 * 1000;
 const ROOM_LIFETIME_MS = 3 * 60 * 60 * 1000;
+const ROOM_EMPTY_CLEANUP_DELAY_MS = 5 * 1000;
 const DEFAULT_PROFILE_COLOR = "#10b981";
 const PROFILE_COLORS = [
   "#10b981",
@@ -981,7 +982,7 @@ const App = () => {
             const emptySince = Number(meta?.emptySince || 0);
             if (!emptySince) {
               tasks.push(update(ref(db, `roomMeta/${roomKey}`), { emptySince: now }));
-            } else if (now - emptySince >= 60 * 1000) {
+            } else if (now - emptySince >= ROOM_EMPTY_CLEANUP_DELAY_MS) {
               tasks.push(remove(ref(db, `roomMeta/${roomKey}`)));
               tasks.push(remove(ref(db, `callUsers/${roomKey}`)));
               tasks.push(remove(ref(db, `recordingStatus/${roomKey}`)));
@@ -1008,7 +1009,7 @@ const App = () => {
     };
 
     cleanupExpiredRooms();
-    const interval = setInterval(cleanupExpiredRooms, 10 * 60 * 1000);
+    const interval = setInterval(cleanupExpiredRooms, 5 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -2487,6 +2488,8 @@ const App = () => {
   const leaveCall = useCallback(async () => {
     const ok = await confirmDialog(t.leaveCallConfirm, t.leaveCallConfirmTitle);
     if (!ok) return;
+    const leavingRoomKey = activeRoomKey;
+    const leavingUserUid = userUID;
     const leaveTs = Date.now();
     callActionCooldownUntilRef.current = Date.now() + 10 * 1000;
     autoJoinCooldownUntilRef.current = leaveTs + 15000;
@@ -2507,16 +2510,38 @@ const App = () => {
       await finalizeCallHistory();
       callUserDisconnectRef.current?.cancel?.();
       callUserDisconnectRef.current = null;
-      if (activeRoomKey) {
-        await set(ref(db, `recordingStatus/${activeRoomKey}`), {
+      if (leavingRoomKey) {
+        await set(ref(db, `recordingStatus/${leavingRoomKey}`), {
           isRecording: false,
-          by: userUID || null,
+          by: leavingUserUid || null,
           at: Date.now(),
         }).catch(() => {});
       }
 
-      if (userUID && activeRoomKey) {
-        await remove(ref(db, `callUsers/${activeRoomKey}/${userUID}`)).catch(() => {});
+      if (leavingUserUid && leavingRoomKey) {
+        await remove(ref(db, `callUsers/${leavingRoomKey}/${leavingUserUid}`)).catch(() => {});
+      }
+
+      if (leavingRoomKey) {
+        const usersSnap = await get(ref(db, `callUsers/${leavingRoomKey}`)).catch(() => null);
+        const usersObj = usersSnap?.val?.() || {};
+        if (Object.keys(usersObj).length === 0) {
+          const emptySinceAt = Date.now();
+          await update(ref(db, `roomMeta/${leavingRoomKey}`), { emptySince: emptySinceAt }).catch(() => {});
+          setTimeout(async () => {
+            const latestUsersSnap = await get(ref(db, `callUsers/${leavingRoomKey}`)).catch(() => null);
+            const latestUsers = latestUsersSnap?.val?.() || {};
+            if (Object.keys(latestUsers).length > 0) return;
+            await Promise.allSettled([
+              remove(ref(db, `roomMeta/${leavingRoomKey}`)),
+              remove(ref(db, `callUsers/${leavingRoomKey}`)),
+              remove(ref(db, `recordingStatus/${leavingRoomKey}`)),
+              remove(ref(db, `muteCommands/${leavingRoomKey}`)),
+            ]);
+          }, ROOM_EMPTY_CLEANUP_DELAY_MS + 100);
+        } else {
+          await update(ref(db, `roomMeta/${leavingRoomKey}`), { emptySince: null }).catch(() => {});
+        }
       }
 
       setInCall(false);
