@@ -420,6 +420,7 @@ const App = () => {
   const callActionCooldownUntilRef = useRef(0);
   const incomingInviteSnoozeUntilRef = useRef({});
   const ignoreRoomReadyBeforeRef = useRef(0);
+  const autoRoomPermissionRef = useRef({ until: 0, reason: "" });
 
   const translations = {
     fa: {
@@ -2251,6 +2252,10 @@ const App = () => {
   ]);
 
   const joinCall = useCallback(async () => {
+    autoRoomPermissionRef.current = {
+      until: Date.now() + 3 * 60 * 1000,
+      reason: "manual_start",
+    };
     await joinCallInternal();
   }, [joinCallInternal]);
 
@@ -2486,6 +2491,7 @@ const App = () => {
     callActionCooldownUntilRef.current = Date.now() + 10 * 1000;
     autoJoinCooldownUntilRef.current = leaveTs + 15000;
     ignoreRoomReadyBeforeRef.current = leaveTs;
+    autoRoomPermissionRef.current = { until: 0, reason: "" };
     incomingJoinDialogOpenRef.current = false;
     hideCallProgressDialog();
     outgoingRequestDialogOpenRef.current = false;
@@ -2787,6 +2793,10 @@ const App = () => {
     setRoomMode("create");
     setRoomName(room);
     setRoomPassword(password);
+    autoRoomPermissionRef.current = {
+      until: Date.now() + 3 * 60 * 1000,
+      reason: "group_start",
+    };
     const ok = await joinCallInternal({
       mode: "create",
       roomName: room,
@@ -2940,6 +2950,17 @@ const App = () => {
     return Math.max(0, Math.ceil((callActionCooldownUntilRef.current - Date.now()) / 1000));
   }, []);
 
+  const grantAutoRoomPermission = useCallback((reason, ttlMs = INVITE_TTL_MS + 30000) => {
+    autoRoomPermissionRef.current = {
+      until: Date.now() + Math.max(10000, Number(ttlMs || 0)),
+      reason: reason || "unknown",
+    };
+  }, []);
+
+  const hasAutoRoomPermission = useCallback(() => {
+    return Date.now() < Number(autoRoomPermissionRef.current.until || 0);
+  }, []);
+
   const triggerJoinWithRetries = useCallback(
     async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
       setRoomMode(mode);
@@ -3003,6 +3024,15 @@ const App = () => {
   const processReceiverRoomReadyInvite = useCallback(
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
+      if (!hasAutoRoomPermission()) {
+        const releaseHandledKey = () => {
+          if (handledKey) {
+            delete handledRoomReadyInviteRef.current[handledKey];
+          }
+        };
+        releaseHandledKey();
+        return;
+      }
       const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
       const releaseHandledKey = () => {
         if (handledKey) {
@@ -3121,6 +3151,7 @@ const App = () => {
       t.waitingBackend,
       triggerJoinWithRetries,
       waitForInviteSenderReady,
+      hasAutoRoomPermission,
     ]
   );
 
@@ -3147,6 +3178,7 @@ const App = () => {
           await notify(`wait (${waitSeconds}) seconds and try again`, "warning", "", { autoCloseMs: 1800 });
           return;
         }
+        grantAutoRoomPermission("incoming_accept");
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
@@ -3178,6 +3210,7 @@ const App = () => {
     notify,
     stopIncomingRingtone,
     getCallActionCooldownSeconds,
+    grantAutoRoomPermission,
     t.incomingCall,
     t.incomingCallBody,
     t.waitingBackend,
@@ -3494,6 +3527,7 @@ const App = () => {
       }
 
       const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      grantAutoRoomPermission("outgoing_invite");
       await set(ref(db, `invites/${targetUid}/${inviteId}`), {
         fromUid: profileUid,
         fromProfileId: profileId,
@@ -3533,6 +3567,7 @@ const App = () => {
       profileId,
       profileName,
       profileUid,
+      grantAutoRoomPermission,
       t.blockedUserCannotCall,
       t.blockedYou,
       t.busyInLobby,
@@ -3587,6 +3622,9 @@ const App = () => {
           return;
         }
         if (item.status === CONTACT_REQUEST_STATUS.accepted && !item.roomName) {
+          if (!hasAutoRoomPermission()) {
+            return;
+          }
           if (item.fromUid && item.fromUid !== profileUid) {
             return;
           }
@@ -3640,6 +3678,9 @@ const App = () => {
           return;
         }
         if (item.status === "room_ready" && item.roomName && item.roomPassword) {
+          if (!hasAutoRoomPermission()) {
+            return;
+          }
           outgoingProcessMap[processKey] = true;
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const joined = await triggerJoinWithRetries("join", item.roomName, item.roomPassword);
@@ -3669,7 +3710,7 @@ const App = () => {
     return () => {
       unsubscribe();
     };
-  }, [closeSwalSafely, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWithRetries]);
+  }, [closeSwalSafely, hasAutoRoomPermission, hideCallProgressDialog, notify, openSwalSafely, outgoingCallRequest, profileUid, showCallProgressDialog, t.expiresIn, t.requestNoAcceptExpired, t.requestingCall, t.roomCreateFailed, t.roomCreating, t.waitingBackend, triggerJoinWithRetries]);
 
   useEffect(() => {
     if (!outgoingCallRequest?.targetUid || !outgoingCallRequest?.inviteId) return undefined;
