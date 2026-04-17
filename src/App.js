@@ -3004,6 +3004,39 @@ const App = () => {
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
       const roomReadyCreatedAt = Number(roomReadyInvite.roomCreatedAt || roomReadyInvite.respondedAt || roomReadyInvite.createdAt || 0);
+      const releaseHandledKey = () => {
+        if (handledKey) {
+          delete handledRoomReadyInviteRef.current[handledKey];
+        }
+      };
+      const roomAgeMs = roomReadyCreatedAt > 0 ? Date.now() - roomReadyCreatedAt : 0;
+      if (roomAgeMs > INVITE_TTL_MS) {
+        update(ref(db, consumeRefPath), {
+          consumedAt: Date.now(),
+          ignoredExpired: true,
+          ignoredAt: Date.now(),
+        }).catch(() => {});
+        releaseHandledKey();
+        return;
+      }
+      const consumeSnap = await get(ref(db, consumeRefPath)).catch(() => null);
+      const consumeData = consumeSnap?.val?.();
+      if (!consumeData || consumeData.consumedAt) {
+        releaseHandledKey();
+        return;
+      }
+      const latestCreatedAt = Number(
+        consumeData.roomCreatedAt || consumeData.respondedAt || consumeData.createdAt || roomReadyCreatedAt || 0
+      );
+      if (latestCreatedAt > 0 && Date.now() - latestCreatedAt > INVITE_TTL_MS) {
+        update(ref(db, consumeRefPath), {
+          consumedAt: Date.now(),
+          ignoredExpired: true,
+          ignoredAt: Date.now(),
+        }).catch(() => {});
+        releaseHandledKey();
+        return;
+      }
       if (
         roomReadyCreatedAt > 0 &&
         roomReadyCreatedAt + 30000 <= ignoreRoomReadyBeforeRef.current &&
@@ -3014,6 +3047,7 @@ const App = () => {
           ignoredByLeave: true,
           ignoredAt: Date.now(),
         }).catch(() => {});
+        releaseHandledKey();
         return;
       }
       const cooldownLeft = autoJoinCooldownUntilRef.current - Date.now();
