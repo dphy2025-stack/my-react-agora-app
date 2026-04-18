@@ -434,6 +434,7 @@ const App = () => {
   const sessionInstanceRef = useRef(`sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
   const lobbyStatusRef = useRef("");
   const joinInFlightRef = useRef(false);
+  const joinInFlightStartedAtRef = useRef(0);
   const callProgressDialogOpenRef = useRef(false);
   const callProgressTimerRef = useRef(null);
   const callProgressContentRef = useRef("");
@@ -1965,9 +1966,28 @@ const App = () => {
   const joinCallInternal = useCallback(async (options = {}) => {
     const suppressErrorNotify = Boolean(options?.suppressErrorNotify);
     if (!profileLoaded) return false;
+    const now = Date.now();
+    const joinLockAge = now - Number(joinInFlightStartedAtRef.current || 0);
+    const staleJoinLockMs = isLegacyAndroid ? 180000 : 120000;
+    if (
+      joinInFlightRef.current &&
+      (!joinInFlightStartedAtRef.current || joinLockAge > staleJoinLockMs) &&
+      !inCall &&
+      !inCallHardRef.current
+    ) {
+      joinInFlightRef.current = false;
+      joinInFlightStartedAtRef.current = 0;
+      setJoining(false);
+    }
+    if (!inCall && !joinInFlightRef.current && joining) {
+      setJoining(false);
+    }
+    if (!inCall && !joinInFlightRef.current && inCallHardRef.current) {
+      inCallHardRef.current = false;
+    }
     if (joinInFlightRef.current) return false;
     if (isLeavingCallRef.current) return false;
-    if (joining || inCall || inCallHardRef.current) return false;
+    if (inCall || inCallHardRef.current) return false;
     if (client.connectionState && client.connectionState !== "DISCONNECTED") {
       await client.leave().catch(() => {});
       client.removeAllListeners();
@@ -2039,6 +2059,7 @@ const App = () => {
     }
 
     joinInFlightRef.current = true;
+    joinInFlightStartedAtRef.current = Date.now();
     setJoining(true);
 
     try {
@@ -2068,6 +2089,23 @@ const App = () => {
       const { token, uid, roomName: finalRoomName } = tokenPayload;
       const finalName = finalRoomName || safeRoomName;
       const finalRoomKey = toRoomKey(finalName);
+      if (activeRoomKey && localCallEntryKeyRef.current) {
+        await remove(ref(db, `callUsers/${activeRoomKey}/${localCallEntryKeyRef.current}`)).catch(() => {});
+      }
+      const existingRoomUsersSnap = await get(ref(db, `callUsers/${finalRoomKey}`)).catch(() => null);
+      const existingRoomUsers = existingRoomUsersSnap?.val?.() || {};
+      const stalePresenceTasks = Object.entries(existingRoomUsers)
+        .filter(([entryKey, value]) => {
+          const normalized = normalizeCallUser(value);
+          const sameEntryKey = Boolean(localCallEntryKeyRef.current && entryKey === localCallEntryKeyRef.current);
+          const sameUid = Boolean(profileUid && normalized.uid === profileUid);
+          const sameProfileId = Boolean(profileId && normalized.profileId === profileId);
+          return sameEntryKey || sameUid || sameProfileId;
+        })
+        .map(([entryKey]) => remove(ref(db, `callUsers/${finalRoomKey}/${entryKey}`)).catch(() => {}));
+      if (stalePresenceTasks.length) {
+        await Promise.allSettled(stalePresenceTasks);
+      }
 
       let joinedUid;
       try {
@@ -2300,9 +2338,11 @@ const App = () => {
     } finally {
       setJoining(false);
       joinInFlightRef.current = false;
+      joinInFlightStartedAtRef.current = 0;
     }
   }, [
     adminBackendUrl,
+    activeRoomKey,
     backendCandidates.length,
     client,
     requestToken,
@@ -2590,6 +2630,9 @@ const App = () => {
     hideCallProgressDialog();
     outgoingRequestDialogOpenRef.current = false;
     setOutgoingCallRequest(null);
+    receiverJoinFlowRef.current = { callId: "", joining: false };
+    joinInFlightRef.current = false;
+    joinInFlightStartedAtRef.current = 0;
     inCallHardRef.current = false;
     setJoining(false);
     setInCall(false);
@@ -2671,6 +2714,12 @@ const App = () => {
       speakingSecondsRef.current = 0;
       previousUserIdsRef.current = [];
       localCallEntryKeyRef.current = "";
+      receiverJoinFlowRef.current = { callId: "", joining: false };
+      joinInFlightRef.current = false;
+      joinInFlightStartedAtRef.current = 0;
+      inCallHardRef.current = false;
+      setJoining(false);
+      setInCall(false);
       isLeavingCallRef.current = false;
     }
   }, [activeRoomKey, client, confirmDialog, finalizeCallHistory, hideCallProgressDialog, isInviteRequestRoomSession, profileUid, t.leaveCallConfirm, t.leaveCallConfirmTitle, userUID]);
@@ -3125,7 +3174,20 @@ const App = () => {
 
   const triggerJoinWithRetries = useCallback(
     async (mode, nextRoomName, nextRoomPassword, extraOptions = {}) => {
-      if (isLeavingCallRef.current || joinInFlightRef.current) return false;
+      if (isLeavingCallRef.current) return false;
+      if (joinInFlightRef.current) {
+        const joinLockAge = Date.now() - Number(joinInFlightStartedAtRef.current || 0);
+        const staleJoinLockMs = isLegacyAndroid ? 180000 : 120000;
+        if (!joinInFlightStartedAtRef.current || joinLockAge > staleJoinLockMs) {
+          joinInFlightRef.current = false;
+          joinInFlightStartedAtRef.current = 0;
+          if (!inCall) {
+            inCallHardRef.current = false;
+          }
+        } else {
+          return false;
+        }
+      }
       setRoomMode(mode);
       setRoomName(nextRoomName);
       setRoomPassword(nextRoomPassword);
@@ -3267,8 +3329,14 @@ const App = () => {
 
       try {
         const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
-        const initialSenderWaitMs = isLegacyAndroid ? 2000 : 1200;
-        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs).catch(() => false);
+        if (!inCall && !joinInFlightRef.current && inCallHardRef.current) {
+          inCallHardRef.current = false;
+        }
+        let senderReady = await waitForInviteSenderReady(
+          roomReadyInvite.roomName,
+          senderUid,
+          isLegacyAndroid ? 15000 : 10000
+        ).catch(() => false);
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
@@ -3276,25 +3344,40 @@ const App = () => {
         }
         let joined = false;
         const receiverJoinDeadline = Date.now() + (isLegacyAndroid ? 120000 : 90000);
-        const joinBatchTimeoutMs = isLegacyAndroid ? 45000 : 32000;
         while (!joined && !inCallHardRef.current && !isLeavingCallRef.current && Date.now() < receiverJoinDeadline) {
-          if (joinInFlightRef.current) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            continue;
-          }
-          const remainingMs = receiverJoinDeadline - Date.now();
-          const batchTimeoutMs = Math.max(9000, Math.min(joinBatchTimeoutMs, remainingMs));
-          joined = await withPromiseTimeout(
-            triggerJoinWithRetries(
-              "join",
+          if (!senderReady) {
+            senderReady = await waitForInviteSenderReady(
               roomReadyInvite.roomName,
-              roomReadyInvite.roomPassword,
-              { allowFromLobbyStart: true, isInviteRequestRoom: true }
-            ),
-            batchTimeoutMs,
-            "receiver join retry batch timeout"
-          ).catch(() => false);
+              senderUid,
+              isLegacyAndroid ? 3500 : 2500
+            ).catch(() => false);
+            if (!senderReady) {
+              await new Promise((resolve) => setTimeout(resolve, 850));
+              continue;
+            }
+          }
+          if (joinInFlightRef.current) {
+            const joinLockAge = Date.now() - Number(joinInFlightStartedAtRef.current || 0);
+            const staleJoinLockMs = isLegacyAndroid ? 180000 : 120000;
+            if (!joinInFlightStartedAtRef.current || joinLockAge > staleJoinLockMs) {
+              joinInFlightRef.current = false;
+              joinInFlightStartedAtRef.current = 0;
+              if (!inCall) {
+                inCallHardRef.current = false;
+              }
+            } else {
+              await new Promise((resolve) => setTimeout(resolve, 300));
+              continue;
+            }
+          }
+          joined = await triggerJoinWithRetries(
+            "join",
+            roomReadyInvite.roomName,
+            roomReadyInvite.roomPassword,
+            { allowFromLobbyStart: true, isInviteRequestRoom: true }
+          );
           if (joined || inCallHardRef.current) break;
+          senderReady = false;
           await new Promise((resolve) => setTimeout(resolve, 900));
         }
 
