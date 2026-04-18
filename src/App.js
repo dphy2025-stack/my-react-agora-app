@@ -3155,15 +3155,23 @@ const App = () => {
     if (!roomNameValue || !senderUid) return true;
     const roomKey = toRoomKey(roomNameValue);
     const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      const snap = await get(ref(db, `callUsers/${roomKey}`)).catch(() => null);
+    const safeTimeout = Math.max(1200, Number(timeoutMs || 0));
+    while (Date.now() - started < safeTimeout) {
+      const remainingMs = safeTimeout - (Date.now() - started);
+      const pollTimeoutMs = Math.max(700, Math.min(2200, remainingMs));
+      const snap = await withPromiseTimeout(
+        get(ref(db, `callUsers/${roomKey}`)).catch(() => null),
+        pollTimeoutMs,
+        "invite sender ready poll timeout"
+      ).catch(() => null);
       const users = snap?.val?.() || {};
       const senderPresent = Object.values(users).some((user) => {
         const normalized = normalizeCallUser(user);
         return normalized.uid === senderUid;
       });
       if (senderPresent) return true;
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      if (remainingMs <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(800, Math.max(250, remainingMs))));
     }
     return false;
   }, []);
@@ -3260,7 +3268,8 @@ const App = () => {
       try {
         const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
         const senderWaitTimeout = isLegacyAndroid ? 70000 : 50000;
-        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, senderWaitTimeout);
+        const initialSenderWaitMs = Math.min(senderWaitTimeout, isLegacyAndroid ? 5000 : 3000);
+        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs);
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
@@ -3276,7 +3285,7 @@ const App = () => {
             { allowFromLobbyStart: true, isInviteRequestRoom: true }
           );
           if (joined || inCall) break;
-          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 12000);
+          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 2500);
           await new Promise((resolve) => setTimeout(resolve, 1200));
         }
 
