@@ -116,6 +116,7 @@ const SPEAKING_LEVEL_THRESHOLD = 17;
 const CALL_USER_STALE_MS = 90 * 1000;
 const AGORA_JOIN_TIMEOUT_MS = 25 * 1000;
 const AGORA_PUBLISH_TIMEOUT_MS = 15 * 1000;
+const CALL_PROGRESS_TIMEOUT_MS = 30 * 1000;
 const RINGTONES = {
   ringtone_1: ringtone1,
   ringtone_2: ringtone2,
@@ -437,6 +438,7 @@ const App = () => {
   const joinInFlightStartedAtRef = useRef(0);
   const callProgressDialogOpenRef = useRef(false);
   const callProgressTimerRef = useRef(null);
+  const groupCreatingTimerRef = useRef(null);
   const callProgressContentRef = useRef("");
   const receiverJoinFlowRef = useRef({ callId: "", joining: false });
   const tokenEndpointCacheRef = useRef({});
@@ -773,6 +775,10 @@ const App = () => {
 
   const showGroupCreatingDialog = useCallback(() => {
     if (groupCreatingDialogOpenRef.current) return;
+    if (groupCreatingTimerRef.current) {
+      clearTimeout(groupCreatingTimerRef.current);
+      groupCreatingTimerRef.current = null;
+    }
     groupCreatingDialogOpenRef.current = true;
     openSwalSafely({
       title: t.roomCreating,
@@ -782,9 +788,20 @@ const App = () => {
       closeOnClickOutside: false,
       closeOnEsc: false,
     });
-  }, [openSwalSafely, t.roomCreating, t.waitingBackend]);
+    groupCreatingTimerRef.current = setTimeout(() => {
+      if (groupCreatingDialogOpenRef.current) {
+        groupCreatingDialogOpenRef.current = false;
+        closeSwalSafely();
+      }
+      notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
+    }, CALL_PROGRESS_TIMEOUT_MS);
+  }, [closeSwalSafely, notify, openSwalSafely, t.roomCreateFailed, t.roomCreating, t.waitingBackend]);
 
   const hideGroupCreatingDialog = useCallback(() => {
+    if (groupCreatingTimerRef.current) {
+      clearTimeout(groupCreatingTimerRef.current);
+      groupCreatingTimerRef.current = null;
+    }
     if (!groupCreatingDialogOpenRef.current) return;
     groupCreatingDialogOpenRef.current = false;
     closeSwalSafely();
@@ -832,7 +849,7 @@ const App = () => {
         }
         callProgressContentRef.current = "";
         notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
-      }, 90 * 1000);
+      }, CALL_PROGRESS_TIMEOUT_MS);
     },
     [closeSwalSafely, inCall, notify, openSwalSafely, t.roomCreateFailed]
   );
@@ -3258,15 +3275,6 @@ const App = () => {
   const processReceiverRoomReadyInvite = useCallback(
     async (roomReadyInvite, consumeRefPath, handledKey) => {
       if (!roomReadyInvite?.id || !roomReadyInvite?.roomName || !roomReadyInvite?.roomPassword) return;
-      if (!hasAutoRoomPermission()) {
-        const releaseHandledKey = () => {
-          if (handledKey) {
-            delete handledRoomReadyInviteRef.current[handledKey];
-          }
-        };
-        releaseHandledKey();
-        return;
-      }
       const roomReadyCreatedAt = inviteEventTs(roomReadyInvite);
       const releaseHandledKey = () => {
         if (handledKey) {
@@ -3285,6 +3293,11 @@ const App = () => {
       const consumeSnap = await get(ref(db, consumeRefPath)).catch(() => null);
       const consumeData = consumeSnap?.val?.();
       if (!consumeData || consumeData.consumedAt) {
+        releaseHandledKey();
+        return;
+      }
+      const acceptedByMe = (consumeData?.acceptedBy || roomReadyInvite?.acceptedBy || "") === profileUid;
+      if (!hasAutoRoomPermission() && !acceptedByMe) {
         releaseHandledKey();
         return;
       }
@@ -3353,7 +3366,7 @@ const App = () => {
           await new Promise((resolve) => setTimeout(resolve, joinDelay));
         }
         let joined = false;
-        const receiverJoinDeadline = Date.now() + (isLegacyAndroid ? 120000 : 90000);
+        const receiverJoinDeadline = Date.now() + CALL_PROGRESS_TIMEOUT_MS;
         while (!joined && !inCallHardRef.current && !isLeavingCallRef.current && Date.now() < receiverJoinDeadline) {
           if (!senderReady && Date.now() < senderReadyDeadline) {
             senderReady = await waitForInviteSenderReady(
@@ -3404,6 +3417,11 @@ const App = () => {
 
         if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
         hideCallProgressDialog();
+        markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
+          failedToJoin: true,
+          failedAt: Date.now(),
+          failedBy: profileUid,
+        }).catch(() => {});
         notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 }).catch(() => {});
       } finally {
         receiverJoinFlowRef.current = { callId: "", joining: false };
@@ -3448,12 +3466,6 @@ const App = () => {
       );
       stopIncomingRingtone();
       if (accepted) {
-        const waitSeconds = getCallActionCooldownSeconds();
-        if (waitSeconds > 0) {
-          incomingInviteSnoozeUntilRef.current[invite.id] = Date.now() + waitSeconds * 1000;
-          await notify(`wait (${waitSeconds}) seconds and try again`, "warning", "", { autoCloseMs: 1800 });
-          return;
-        }
         grantAutoRoomPermission("incoming_accept");
         autoJoinCooldownUntilRef.current = 0;
         if (!joinInFlightRef.current && !isLeavingCallRef.current) {
@@ -3490,7 +3502,6 @@ const App = () => {
     pushBrowserNotification,
     notify,
     stopIncomingRingtone,
-    getCallActionCooldownSeconds,
     grantAutoRoomPermission,
     t.incomingCall,
     t.incomingCallBody,
