@@ -3268,7 +3268,7 @@ const App = () => {
       try {
         const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
         const initialSenderWaitMs = isLegacyAndroid ? 2000 : 1200;
-        waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs).catch(() => {});
+        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs).catch(() => false);
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
@@ -3276,17 +3276,29 @@ const App = () => {
         }
         let joined = false;
         const receiverJoinDeadline = Date.now() + (isLegacyAndroid ? 120000 : 90000);
-        while (!joined && !inCall && Date.now() < receiverJoinDeadline) {
-          joined = await triggerJoinWithRetries(
-            "join",
-            roomReadyInvite.roomName,
-            roomReadyInvite.roomPassword,
-            { allowFromLobbyStart: true, isInviteRequestRoom: true }
-          );
-          if (joined || inCall) break;
+        const joinBatchTimeoutMs = isLegacyAndroid ? 45000 : 32000;
+        while (!joined && !inCallHardRef.current && !isLeavingCallRef.current && Date.now() < receiverJoinDeadline) {
+          if (joinInFlightRef.current) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            continue;
+          }
+          const remainingMs = receiverJoinDeadline - Date.now();
+          const batchTimeoutMs = Math.max(9000, Math.min(joinBatchTimeoutMs, remainingMs));
+          joined = await withPromiseTimeout(
+            triggerJoinWithRetries(
+              "join",
+              roomReadyInvite.roomName,
+              roomReadyInvite.roomPassword,
+              { allowFromLobbyStart: true, isInviteRequestRoom: true }
+            ),
+            batchTimeoutMs,
+            "receiver join retry batch timeout"
+          ).catch(() => false);
+          if (joined || inCallHardRef.current) break;
+          await new Promise((resolve) => setTimeout(resolve, 900));
         }
 
-        if (joined || inCall) {
+        if (joined || inCall || inCallHardRef.current) {
           if (incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = false;
           hideCallProgressDialog();
           markRoomReadyConsumed(roomReadyInvite.id, consumeRefPath, {
