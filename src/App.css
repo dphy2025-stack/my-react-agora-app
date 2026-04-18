@@ -27,7 +27,7 @@
 
 body {
   margin: 0;
-  font-family: "vazirmatn", sans-serif;
+  font-family: "vazirmatn", "Segoe UI", Tahoma, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
   background: radial-gradient(circle at 5% 0%, #16405d 0%, #0a253a 36%, #061723 100%);
   color: var(--text-main);
 }
@@ -176,6 +176,18 @@ body[data-theme="light"] {
   text-align: center;
   user-select: none;
   letter-spacing: 0.3px;
+  font-family: "vazirmatn", "Segoe UI", sans-serif;
+}
+
+.brand-title {
+  font-size: 38px;
+  letter-spacing: 1px;
+  font-weight: 900;
+  background: linear-gradient(120deg, #d8f9ff 0%, #8cefd5 38%, #39c5f6 70%, #f7fffd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 10px 28px rgba(5, 22, 36, 0.48);
 }
 
 .entry-subtitle {
@@ -313,6 +325,7 @@ input:-webkit-autofill:active {
   justify-content: center;
   font-size: 48px;
   line-height: 1;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "vazirmatn", sans-serif;
 }
 
 .emoji-grid {
@@ -334,6 +347,7 @@ input:-webkit-autofill:active {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "vazirmatn", sans-serif;
 }
 
 .emoji-btn.selected {
@@ -683,7 +697,7 @@ body[data-theme="light"] .chip-avatar-emoji {
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
-  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  font-family: "vazirmatn", "Segoe UI", Tahoma, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
 }
 
 .about-logo {
@@ -695,16 +709,16 @@ body[data-theme="light"] .chip-avatar-emoji {
 }
 
 .about-body h3 {
-  font-family: "Georgia", "Times New Roman", serif;
+  font-family: "vazirmatn", "Segoe UI", Tahoma, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
   letter-spacing: 0.2px;
 }
 
 .about-body h4 {
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-family: "vazirmatn", "Segoe UI", Tahoma, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
 }
 
 .about-body p {
-  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  font-family: "vazirmatn", "Segoe UI", Tahoma, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
 }
 
 .first-visit-overlay {
@@ -1441,6 +1455,7 @@ body[data-theme="light"] .chip-avatar-emoji {
   width: 52px;
   height: 52px;
   font-size: 24px;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "vazirmatn", sans-serif;
 }
 
 .mini-avatar {
@@ -1988,6 +2003,10 @@ body[data-theme="light"] .call-card {
 
   .entry-title {
     font-size: 24px;
+  }
+
+  .brand-title {
+    font-size: 31px;
   }
 
   .timer-row {

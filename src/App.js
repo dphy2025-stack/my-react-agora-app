@@ -90,9 +90,9 @@ const PROFILE_COLORS = [
   "#e11d48",
 ];
 const PROFILE_EMOJIS = [
-  "ðŸ™‚", "ðŸ˜Ž", "ðŸ¤–", "ðŸ”¥", "ðŸ’š", "ðŸŽ§", "âœ¨", "ðŸ¦Š", "ðŸ¼", "ðŸ¯", "ðŸŒŸ", "ðŸš€", "ðŸŽ¤", "ðŸŽµ", "ðŸ§ ", "ðŸ€",
-  "ðŸ¦", "ðŸ¨", "ðŸ¶", "ðŸ±", "ðŸ«¶", "ðŸ’«", "âš¡", "ðŸŽ¯", "ðŸ›°ï¸", "ðŸ›¡ï¸", "ðŸ’Ž", "ðŸ•Šï¸", "ðŸŒˆ", "ðŸŒ™", "â˜€ï¸", "ðŸ§©",
-  "ðŸ¥·", "ðŸ‘‘", "ðŸ¦„", "ðŸ™", "ðŸ¬", "ðŸ§¸", "ðŸŽ®", "ðŸ“š", "âœˆï¸", "ðŸ”ï¸", "ðŸŒŠ", "ðŸ", "ðŸ‰", "ðŸ¥‘", "â˜•", "ðŸª",
+  "🙂", "😊", "🤝", "💙", "💕", "🎧", "✨", "🦊", "🐼", "🐯", "🌸", "🚀", "🎤", "🎵", "🧠", "🍀",
+  "🦁", "🐨", "🐶", "🐱", "🫶", "💫", "⚡", "🎯", "🏰", "🏡", "💎", "🖊️", "🌈", "🌙", "☀️", "🧩",
+  "🥷", "👑", "🦄", "🐙", "🐬", "🧸", "🎮", "📚", "✈️", "🏔️", "🌊", "🍁", "🍉", "🥑", "☕", "🍪",
 ];
 
 const STABILITY_MODES = {
@@ -895,9 +895,9 @@ const App = () => {
 
   useEffect(() => {
     const fontMap = {
-      vazirmatn: '"vazirmatn", sans-serif',
-      system: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
-      serif: "Georgia, Times New Roman, serif",
+      vazirmatn: '"vazirmatn", "Segoe UI", Tahoma, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"',
+      system: 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Tahoma, "vazirmatn", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"',
+      serif: '"vazirmatn", "Noto Naskh Arabic", "Times New Roman", Georgia, serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"',
     };
     document.body.style.fontFamily = fontMap[fontChoice] || fontMap.vazirmatn;
   }, [fontChoice]);
@@ -3318,6 +3318,15 @@ const App = () => {
         return;
       }
       const flowCallId = `recv_${roomReadyInvite.id}`;
+      if (
+        receiverJoinFlowRef.current.joining &&
+        !joinInFlightRef.current &&
+        !inCall &&
+        !inCallHardRef.current &&
+        !isLeavingCallRef.current
+      ) {
+        receiverJoinFlowRef.current = { callId: "", joining: false };
+      }
       if (receiverJoinFlowRef.current.callId === flowCallId && receiverJoinFlowRef.current.joining) return;
       if (receiverJoinFlowRef.current.joining && receiverJoinFlowRef.current.callId !== flowCallId) {
         releaseHandledKey();
@@ -3332,10 +3341,11 @@ const App = () => {
         if (!inCall && !joinInFlightRef.current && inCallHardRef.current) {
           inCallHardRef.current = false;
         }
+        const senderReadyDeadline = Date.now() + (isLegacyAndroid ? 22000 : 14000);
         let senderReady = await waitForInviteSenderReady(
           roomReadyInvite.roomName,
           senderUid,
-          isLegacyAndroid ? 15000 : 10000
+          isLegacyAndroid ? 5000 : 3200
         ).catch(() => false);
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
@@ -3345,13 +3355,13 @@ const App = () => {
         let joined = false;
         const receiverJoinDeadline = Date.now() + (isLegacyAndroid ? 120000 : 90000);
         while (!joined && !inCallHardRef.current && !isLeavingCallRef.current && Date.now() < receiverJoinDeadline) {
-          if (!senderReady) {
+          if (!senderReady && Date.now() < senderReadyDeadline) {
             senderReady = await waitForInviteSenderReady(
               roomReadyInvite.roomName,
               senderUid,
               isLegacyAndroid ? 3500 : 2500
             ).catch(() => false);
-            if (!senderReady) {
+            if (!senderReady && Date.now() < senderReadyDeadline) {
               await new Promise((resolve) => setTimeout(resolve, 850));
               continue;
             }
@@ -3377,7 +3387,9 @@ const App = () => {
             { allowFromLobbyStart: true, isInviteRequestRoom: true }
           );
           if (joined || inCallHardRef.current) break;
-          senderReady = false;
+          if (Date.now() < senderReadyDeadline) {
+            senderReady = false;
+          }
           await new Promise((resolve) => setTimeout(resolve, 900));
         }
 
@@ -3443,6 +3455,11 @@ const App = () => {
           return;
         }
         grantAutoRoomPermission("incoming_accept");
+        autoJoinCooldownUntilRef.current = 0;
+        if (!joinInFlightRef.current && !isLeavingCallRef.current) {
+          inCallHardRef.current = false;
+          receiverJoinFlowRef.current = { callId: "", joining: false };
+        }
         if (!incomingJoinDialogOpenRef.current) incomingJoinDialogOpenRef.current = true;
         showCallProgressDialog(t.incomingCall, t.waitingBackend);
         await update(ref(db, `invites/${profileUid}/${invite.id}`), {
@@ -4311,7 +4328,7 @@ const App = () => {
         </button>
 
         <div className="entry-card">
-          <h1 className="entry-title">
+          <h1 className="entry-title brand-title">
             {APP_DISPLAY_NAME}
           </h1>
           <p className="entry-subtitle">{t.subtitle}</p>
@@ -4415,7 +4432,7 @@ const App = () => {
                       {groupSearchResult.avatar ? (
                         <img src={groupSearchResult.avatar} alt={groupSearchResult.name || groupSearchResult.uid} className="mini-avatar large" />
                       ) : (
-                        <span className="mini-avatar-emoji large">{groupSearchResult.emoji || "ðŸ™‚"}</span>
+                        <span className="mini-avatar-emoji large">{groupSearchResult.emoji || "🙂"}</span>
                       )}
                       <strong>{groupSearchResult.name || groupSearchResult.uid}</strong>
                     </span>
@@ -4442,7 +4459,7 @@ const App = () => {
                             {contact.avatar ? (
                               <img src={contact.avatar} alt={contact.name} className="mini-avatar large" />
                             ) : (
-                              <span className="mini-avatar-emoji large">{contact.emoji || "ðŸ™‚"}</span>
+                              <span className="mini-avatar-emoji large">{contact.emoji || "🙂"}</span>
                             )}
                             <strong>{contact.name}</strong>
                           </span>
@@ -4468,7 +4485,7 @@ const App = () => {
                         {member.avatar ? (
                           <img src={member.avatar} alt={member.name} className="mini-avatar large" />
                         ) : (
-                          <span className="mini-avatar-emoji large">{member.emoji || "ðŸ™‚"}</span>
+                          <span className="mini-avatar-emoji large">{member.emoji || "🙂"}</span>
                         )}
                         <strong>{member.name}</strong>
                       </span>
@@ -4675,7 +4692,7 @@ const App = () => {
                                 {request.fromAvatar ? (
                                   <img src={request.fromAvatar} alt={request.fromName} className="mini-avatar large" />
                                 ) : (
-                                  <span className="mini-avatar-emoji large">{request.fromEmoji || "ðŸ™‚"}</span>
+                                  <span className="mini-avatar-emoji large">{request.fromEmoji || "🙂"}</span>
                                 )}
                                 <strong className="contact-name">{request.fromName}</strong>
                               </span>
@@ -4719,7 +4736,7 @@ const App = () => {
                             {row.avatar ? (
                               <img src={row.avatar} alt={row.name || row.uid} className="mini-avatar large" />
                             ) : (
-                              <span className="mini-avatar-emoji large">{row.emoji || "ðŸ™‚"}</span>
+                              <span className="mini-avatar-emoji large">{row.emoji || "🙂"}</span>
                             )}
                             <strong>{row.name || row.uid}</strong>
                           </span>
@@ -4768,7 +4785,7 @@ const App = () => {
                   <p className="section-label">{t.languageLabel}</p>
                   <div className="mode-grid">
                     <button className={`btn-gradient ${language === "en" ? "mode-active" : ""}`} onClick={() => setLanguage("en")}>English</button>
-                    <button className={`btn-gradient ${language === "fa" ? "mode-active" : ""}`} onClick={() => setLanguage("fa")}>ÙØ§Ø±Ø³ÛŒ</button>
+                    <button className={`btn-gradient ${language === "fa" ? "mode-active" : ""}`} onClick={() => setLanguage("fa")}>فارسی</button>
                   </div>
                   <p className="section-label">{t.themeLabel}</p>
                   <div className="mode-grid">
@@ -4802,32 +4819,32 @@ const App = () => {
                     <img src={appLogo} alt="Happy Talk logo" className="about-logo" />
                     <h3>{APP_DISPLAY_NAME}</h3>
                   </div>
-                  <h3>About This App ðŸš€</h3>
+                  <h3>About This App 🚀</h3>
                   <p>
                     This application is the result of months of dedicated effort, continuous learning, and real-world testing.
-                    Every part of it has been carefully crafted with passion, precision, and a strong vision to build something truly reliable and meaningful ðŸ’¡
+                    Every part of it has been carefully crafted with passion, precision, and a strong vision to build something truly reliable and meaningful 💡
                   </p>
                   <p>
                     It is designed to deliver high-quality private voice communication, even under challenging network conditions.
-                    The goal was simple yet powerful: create a system that just works fast, stable, and secure no matter where the user is ðŸŒ
+                    The goal was simple yet powerful: create a system that just works fast, stable, and secure no matter where the user is 🌍
                   </p>
-                  <h4>âš™ï¸ Full Technology Stack (Complete System)</h4>
+                  <h4>⚙️ Full Technology Stack (Complete System)</h4>
                   <p>This is not just a simple app it is a fully integrated system including frontend, backend, real-time communication, and database.</p>
-                  <h4>ðŸ§  Backend</h4>
+                  <h4>🧠 Backend</h4>
                   <p>Built with Node.js + ngrok</p>
                   <p>Handles secure token generation, manages communication between services, and enables external access.</p>
-                  <h4>ðŸŽ¨ Frontend</h4>
-                  <p>Developed using JavaScript + React with modern, dynamic, and responsive UI and smooth UX âœ¨</p>
-                  <h4>ðŸ“¡ Real-Time Communication</h4>
-                  <p>Powered by Agora for high-quality voice calls, low latency, and optimization for unstable networks ðŸ”Š</p>
-                  <h4>ðŸ—„ Database & Real-Time Sync</h4>
+                  <h4>🎨 Frontend</h4>
+                  <p>Developed using JavaScript + React with modern, dynamic, and responsive UI and smooth UX ✨</p>
+                  <h4>📡 Real-Time Communication</h4>
+                  <p>Powered by Agora for high-quality voice calls, low latency, and optimization for unstable networks 🔊</p>
+                  <h4>🗄️ Database & Real-Time Sync</h4>
                   <p>Using Firebase for real-time sync, user presence tracking, contacts, history, and live updates.</p>
-                  <h4>ðŸ’¬ Vision</h4>
+                  <h4>💬 Vision</h4>
                   <p>
                     This app was built with a strong belief that communication should be simple, fast, and accessible for everyone,
-                    even in low-bandwidth environments users should connect without frustration â¤ï¸
+                    even in low-bandwidth environments users should connect without frustration ❤️
                   </p>
-                  <h4>ðŸ‘¨â€ðŸ’» Creator</h4>
+                  <h4>👨‍💻 Creator</h4>
                   <p><strong>Wahidullah Khajeh Seddiqi (Mr.Happy)</strong></p>
                   <p>
                     <strong>
@@ -4845,7 +4862,7 @@ const App = () => {
                       </a>
                     </strong>
                   </p>
-                  <p>âœ¨ Built with passion, persistence, and a love for creating real-world solutions.</p>
+                  <p>✨ Built with passion, persistence, and a love for creating real-world solutions.</p>
                 </div>
               ) : null}
 
@@ -4969,7 +4986,7 @@ const App = () => {
                     {userInfo.avatar ? (
                       <img src={userInfo.avatar} alt={userInfo.name} className="chip-avatar" />
                     ) : (
-                      <span className="chip-avatar-emoji">{userInfo.emoji || "ðŸ™‚"}</span>
+                      <span className="chip-avatar-emoji">{userInfo.emoji || "🙂"}</span>
                     )}
                     <span>{userInfo.name}</span>
                   </span>
@@ -5062,7 +5079,7 @@ const App = () => {
               {selectedCallUser.avatar ? (
                 <img src={selectedCallUser.avatar} alt={selectedCallUser.name} className="profile-avatar-preview" />
               ) : (
-                <div className="profile-emoji-fallback">{selectedCallUser.emoji || "ðŸ™‚"}</div>
+                <div className="profile-emoji-fallback">{selectedCallUser.emoji || "🙂"}</div>
               )}
             </div>
             <h4>{selectedCallUser.name || "User"}</h4>
