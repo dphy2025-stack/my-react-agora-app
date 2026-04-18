@@ -3817,41 +3817,10 @@ const App = () => {
           showCallProgressDialog(t.roomCreating, t.waitingBackend);
           const room = randomRoomValue("room");
           const password = randomRoomValue("pw");
-          const roomReadyPayload = {
-            status: "room_ready",
-            roomName: room,
-            roomPassword: password,
-            roomCreatedBy: profileUid,
-            fromUid: profileUid,
-            toUid: outgoingCallRequest.targetUid,
-            inviteId: outgoingCallRequest.inviteId,
-            roomCreatedAt: Date.now(),
-            receiverJoinDelayMs: 2000,
-            respondedAt: Date.now(),
-          };
           const mirrorRef = ref(
             db,
             `roomReadyByInvite/${outgoingCallRequest.targetUid}/${outgoingCallRequest.inviteId}`
           );
-          const publishResults = await Promise.allSettled([
-            update(inviteRef, roomReadyPayload),
-            set(mirrorRef, {
-              ...roomReadyPayload,
-              toUid: outgoingCallRequest.targetUid,
-              fromUid: profileUid,
-              inviteId: outgoingCallRequest.inviteId,
-              createdAt: Date.now(),
-            }),
-          ]);
-          const published = publishResults.some((result) => result.status === "fulfilled");
-          if (!published) {
-            hideCallProgressDialog();
-            await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
-            setOutgoingCallRequest(null);
-            delete outgoingProcessMap[processKey];
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
           const joined = await triggerJoinWithRetries("create", room, password, { isInviteRequestRoom: true });
           if (outgoingRequestDialogOpenRef.current) outgoingRequestDialogOpenRef.current = false;
           if (!joined) {
@@ -3860,6 +3829,67 @@ const App = () => {
             delete outgoingProcessMap[processKey];
             return;
           }
+          const roomReadyAt = Date.now();
+          const roomReadyPayload = {
+            status: "room_ready",
+            roomName: room,
+            roomPassword: password,
+            roomCreatedBy: profileUid,
+            fromUid: profileUid,
+            toUid: outgoingCallRequest.targetUid,
+            inviteId: outgoingCallRequest.inviteId,
+            roomCreatedAt: roomReadyAt,
+            receiverJoinDelayMs: 2000,
+            respondedAt: roomReadyAt,
+          };
+
+          const publishRoomReady = async () => {
+            const publishTs = Date.now();
+            const publishResults = await Promise.allSettled([
+              update(inviteRef, {
+                ...roomReadyPayload,
+                roomCreatedAt: roomReadyAt,
+                respondedAt: publishTs,
+              }),
+              set(mirrorRef, {
+                ...roomReadyPayload,
+                toUid: outgoingCallRequest.targetUid,
+                fromUid: profileUid,
+                inviteId: outgoingCallRequest.inviteId,
+                roomCreatedAt: roomReadyAt,
+                respondedAt: publishTs,
+                createdAt: publishTs,
+              }),
+            ]);
+            return publishResults.some((result) => result.status === "fulfilled");
+          };
+
+          let initialPublished = false;
+          for (let attempt = 1; attempt <= 3; attempt += 1) {
+            initialPublished = await publishRoomReady();
+            if (initialPublished) break;
+            if (attempt < 3) {
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+          if (!initialPublished) {
+            hideCallProgressDialog();
+            await notify(t.roomCreateFailed, "error", "", { autoCloseMs: 2000 });
+            setOutgoingCallRequest(null);
+            delete outgoingProcessMap[processKey];
+            return;
+          }
+
+          void (async () => {
+            const maxRepublishRounds = 10;
+            for (let round = 1; round <= maxRepublishRounds; round += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+              const latestInvite = await get(inviteRef).catch(() => null);
+              if (latestInvite?.val?.()?.consumedAt) break;
+              await publishRoomReady().catch(() => {});
+            }
+          })();
+
           hideCallProgressDialog();
           setOutgoingCallRequest(null);
           delete outgoingProcessMap[processKey];
