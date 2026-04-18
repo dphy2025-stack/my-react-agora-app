@@ -3267,9 +3267,8 @@ const App = () => {
 
       try {
         const senderUid = roomReadyInvite.fromUid || roomReadyInvite.from || "";
-        const senderWaitTimeout = isLegacyAndroid ? 70000 : 50000;
-        const initialSenderWaitMs = Math.min(senderWaitTimeout, isLegacyAndroid ? 5000 : 3000);
-        await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs);
+        const initialSenderWaitMs = isLegacyAndroid ? 2000 : 1200;
+        waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, initialSenderWaitMs).catch(() => {});
 
         const joinDelay = Math.min(5000, Math.max(0, Number(roomReadyInvite.receiverJoinDelayMs || 2000)));
         if (joinDelay > 0) {
@@ -3285,8 +3284,6 @@ const App = () => {
             { allowFromLobbyStart: true, isInviteRequestRoom: true }
           );
           if (joined || inCall) break;
-          await waitForInviteSenderReady(roomReadyInvite.roomName, senderUid, 2500);
-          await new Promise((resolve) => setTimeout(resolve, 1200));
         }
 
         if (joined || inCall) {
